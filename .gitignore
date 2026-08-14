@@ -11,6 +11,7 @@ cline
 
 node_modules/
 .pnpm-store/
+.corepack/
 .npmrc
 
 docs/
