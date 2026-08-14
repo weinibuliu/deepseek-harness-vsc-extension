@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { parseGfm, parseGfmWithMath } from './parse.ts'
+import { parseGfmWithMath } from './parse.ts'
+import { MarkdownText } from './MarkdownText.tsx'
 import {
   collectReferenceTargets, createReferenceTargets, renderBlocks, renderFootnoteSection,
   type MarkdownFileMentions, type MarkdownRenderContext,
@@ -15,7 +16,7 @@ interface RenderOptions {
 
 /** Render one markdown document through the settled (or streaming) pipeline. */
 function renderMarkdown(text: string, options: RenderOptions = {}) {
-  const root = options.streaming ? parseGfm(text) : parseGfmWithMath(text)
+  const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
   collectReferenceTargets(root.children, targets)
   const context: MarkdownRenderContext = {
@@ -165,6 +166,39 @@ describe('TeX math (KaTeX)', () => {
     const display = renderMarkdown('$$x^2$$')
     expect(display.container.querySelector('.katex')).not.toBeNull()
     display.unmount()
+  })
+
+  it('renders delimiter math as KaTeX while streaming', () => {
+    const inline = renderMarkdown('$E = mc^2$', { streaming: true })
+    expect(inline.container.querySelector('.katex')).not.toBeNull()
+    inline.unmount()
+
+    const display = renderMarkdown('$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$', { streaming: true })
+    expect(display.container.querySelector('.katex')).not.toBeNull()
+    display.unmount()
+
+    const brackets = renderMarkdown('\\[\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}\\]', { streaming: true })
+    expect(brackets.container.querySelector('.katex')).not.toBeNull()
+    brackets.unmount()
+  })
+
+  it('renders delimiter math mid-stream through MarkdownText', () => {
+    const inline = render(<MarkdownText text="$E = mc^2$" streaming />)
+    expect(inline.container.querySelector('.katex')).not.toBeNull()
+    inline.unmount()
+
+    const display = render(<MarkdownText text={'$$a^2 + b^2 = c^2$$'} streaming />)
+    expect(display.container.querySelector('.katex')).not.toBeNull()
+    display.unmount()
+  })
+
+  it('flips an open delimiter to KaTeX once it closes mid-stream', () => {
+    const { container, rerender } = render(<MarkdownText text="$x^2" streaming />)
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.textContent).toContain('$x^2')
+
+    rerender(<MarkdownText text="$x^2$" streaming />)
+    expect(container.querySelector('.katex')).not.toBeNull()
   })
 
   it('renders ```math fences as display KaTeX once settled', () => {

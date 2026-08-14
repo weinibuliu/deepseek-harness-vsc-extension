@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseGfm, parseGfmWithMath } from './parse.ts'
 
-describe('parseGfm (streaming arm)', () => {
+describe('parseGfm (GFM only)', () => {
   it('parses GFM block constructs to their mdast node types', () => {
     const root = parseGfm([
       '# Heading',
@@ -57,7 +57,7 @@ describe('parseGfm (streaming arm)', () => {
   })
 })
 
-describe('parseGfmWithMath (settled arm)', () => {
+describe('parseGfmWithMath (GFM + math)', () => {
   it('parses inline and display TeX math', () => {
     const root = parseGfmWithMath('$x$\n\n$$y$$')
     const paragraph = root.children[0]
@@ -75,7 +75,7 @@ describe('parseGfmWithMath (settled arm)', () => {
     expect(paragraph.children.some(node => node.type === 'inlineMath')).toBe(true)
   })
 
-  it('does not parse math in the streaming (GFM-only) grammar', () => {
+  it('omits math in the GFM-only grammar', () => {
     const root = parseGfm('$x$')
     const paragraph = root.children[0]
     expect(paragraph?.type).toBe('paragraph')

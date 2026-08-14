@@ -1,9 +1,10 @@
 /**
- * The markdown renderer's two micromark grammars, one per rendering arm.
- * Mirrors dsh-client-ui-primitives parse.ts so the syntax face matches dsh
- * web: the streaming arm parses GFM only (incomplete TeX never flashes KaTeX
- * errors mid-stream), the settled arm adds TeX math (micromark-extension-math
- * plus the compatibility delimiters).
+ * The markdown renderer's two micromark grammars. Mirrors
+ * dsh-client-ui-primitives parse.ts so the syntax face matches dsh web: the
+ * streaming and settled arms both parse GFM plus TeX math
+ * (micromark-extension-math plus the compatibility delimiters), so formulas
+ * render as soon as their closing delimiter lands. A GFM-only grammar is kept
+ * as the no-math baseline for tests and for callers that must not emit math.
  */
 
 import type { Root } from 'mdast'
@@ -16,7 +17,7 @@ import { cjkFriendlyStrong } from './cjkFriendlyStrong.ts'
 import { mathCompatibility } from './mathCompatibility.ts'
 
 /**
- * Parse GFM markdown (the streaming arm's grammar: no math).
+ * Parse GFM markdown without TeX math.
  * @param text - Markdown source.
  * @returns The mdast root.
  */
@@ -29,7 +30,7 @@ export function parseGfm(text: string): Root {
 
 /**
  * Parse GFM markdown plus TeX math with the compatibility delimiters
- * (the settled arm's grammar).
+ * (the grammar shared by the streaming and settled arms).
  * @param text - Markdown source.
  * @returns The mdast root.
  */

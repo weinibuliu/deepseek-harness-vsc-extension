@@ -52,7 +52,7 @@ export interface ReferenceTargets {
 
 /** One render pass's state. */
 export interface MarkdownRenderContext {
-  /** Streaming arm: fences render plain and TeX stays literal. */
+  /** Streaming arm: fences render plain; delimiter math still renders, fenced ```math defers to settled. */
   readonly streaming: boolean
   /** Localized fence copy-button labels. */
   readonly codeLabels: MarkdownCodeLabels | undefined
@@ -213,7 +213,9 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
   }
   const lang = language === undefined ? undefined : /^[\w-]+/.exec(language)?.[0]
   if (!context.streaming && lang === 'math') {
-    // ```math fences render as display TeX once settled.
+    // ```math fences render as display TeX only once settled: an unclosed
+    // fence mid-stream can carry incomplete TeX, unlike delimiter math whose
+    // closing delimiter guarantees completeness.
     return <Fragment key={key}>{renderTexToReact(`${node.value}\n`, true)}</Fragment>
   }
   return (
