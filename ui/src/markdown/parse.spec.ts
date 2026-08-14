@@ -45,15 +45,21 @@ describe('parseGfm (streaming arm)', () => {
       && node.children.some(child => child.type === 'footnoteReference'))).toBe(true)
   })
 
-  it('keeps raw HTML as an html node (rendered literally downstream)', () => {
-    const root = parseGfm('<b>x</b>')
-    expect(root.children[0]?.type).toBe('html')
+  it('keeps raw HTML as html nodes (rendered literally downstream)', () => {
+    // Block-level HTML becomes a top-level html node.
+    const block = parseGfm('<div>x</div>')
+    expect(block.children[0]?.type).toBe('html')
+    // Inline HTML stays an html child inside its paragraph.
+    const inline = parseGfm('a <b>x</b>')
+    const paragraph = inline.children[0]
+    if (paragraph?.type !== 'paragraph') throw new Error('expected paragraph')
+    expect(paragraph.children.some(node => node.type === 'html')).toBe(true)
   })
 })
 
 describe('parseGfmWithMath (settled arm)', () => {
   it('parses inline and display TeX math', () => {
-    const root = parseGfmWithMath('$x$ and $$y$$')
+    const root = parseGfmWithMath('$x$\n\n$$y$$')
     const paragraph = root.children[0]
     expect(paragraph?.type).toBe('paragraph')
     if (paragraph?.type !== 'paragraph') throw new Error('expected paragraph')
