@@ -201,6 +201,30 @@ describe('TeX math (KaTeX)', () => {
     expect(container.querySelector('.katex')).not.toBeNull()
   })
 
+  it.each<[string, boolean]>([
+    ['$x^2', false],
+    ['$$a + b', false],
+    ['$$\na + b', false],
+    ['$$\n\\frac{1}{', false],
+    ['$x^2$', true],
+    ['$$a + b$$', true],
+    ['\\[x + 1\\]', true],
+    ['\\(x + 1\\)', true],
+  ])('streams %j as katex=%s without a katex-error', (text, expectKatex) => {
+    const { container } = render(<MarkdownText text={text} streaming />)
+    expect(container.querySelector('.katex') !== null).toBe(expectKatex)
+    expect(container.querySelector('.katex-error')).toBeNull()
+  })
+
+  it('flips a same-line $$ block to KaTeX once it closes mid-stream', () => {
+    const { container, rerender } = render(<MarkdownText text="$$a + b" streaming />)
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.textContent).toContain('$$a + b')
+
+    rerender(<MarkdownText text="$$a + b$$" streaming />)
+    expect(container.querySelector('.katex')).not.toBeNull()
+  })
+
   it('renders ```math fences as display KaTeX once settled', () => {
     const streaming = renderMarkdown('```math\nx+1\n```', { streaming: true })
     expect(streaming.container.querySelector('.katex')).toBeNull()

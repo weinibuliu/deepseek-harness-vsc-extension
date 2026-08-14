@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseGfm, parseGfmWithMath } from './parse.ts'
+import { parseGfm, parseGfmWithMath, parseGfmWithMathStreaming } from './parse.ts'
 
 describe('parseGfm (GFM only)', () => {
   it('parses GFM block constructs to their mdast node types', () => {
@@ -81,5 +81,27 @@ describe('parseGfmWithMath (GFM + math)', () => {
     expect(paragraph?.type).toBe('paragraph')
     if (paragraph?.type !== 'paragraph') throw new Error('expected paragraph')
     expect(paragraph.children.every(node => node.type === 'text')).toBe(true)
+  })
+})
+
+describe('parseGfmWithMathStreaming (streaming grammar, no $$ fence)', () => {
+  it('keeps an unclosed $$ fence literal instead of a math node', () => {
+    // Same-line: the standard mathFlow would swallow `a + b` as fence meta.
+    const sameline = parseGfmWithMathStreaming('$$a + b')
+    expect(sameline.children[0]?.type).toBe('paragraph')
+
+    // Multi-line: the standard mathFlow would accept it at EOF (premature math).
+    const multiline = parseGfmWithMathStreaming('$$\na + b')
+    expect(multiline.children[0]?.type).toBe('paragraph')
+  })
+
+  it('still parses delimiter math and same-line $$', () => {
+    const inline = parseGfmWithMathStreaming('$x^2$')
+    const inlineParagraph = inline.children[0]
+    if (inlineParagraph?.type !== 'paragraph') throw new Error('expected paragraph')
+    expect(inlineParagraph.children.some(node => node.type === 'inlineMath')).toBe(true)
+
+    const display = parseGfmWithMathStreaming('$$a + b$$')
+    expect(display.children[0]?.type).toBe('math')
   })
 })

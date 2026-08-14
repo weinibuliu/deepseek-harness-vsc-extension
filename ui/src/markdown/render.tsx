@@ -52,7 +52,7 @@ export interface ReferenceTargets {
 
 /** One render pass's state. */
 export interface MarkdownRenderContext {
-  /** Streaming arm: fences render plain; delimiter math still renders, fenced ```math defers to settled. */
+  /** Streaming arm: fences render plain; delimiter math renders, multi-line $$ and fenced ```math defer to settled. */
   readonly streaming: boolean
   /** Localized fence copy-button labels. */
   readonly codeLabels: MarkdownCodeLabels | undefined
