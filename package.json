@@ -30,7 +30,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "weinibuliu-dsh-vsc",
           "title": "DeepSeek Harness",
