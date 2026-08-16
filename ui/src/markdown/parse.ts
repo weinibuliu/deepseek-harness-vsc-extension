@@ -67,21 +67,3 @@ export function parseGfmWithMathStreaming(text: string): Root {
     mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
   });
 }
-
-/**
- * Parse GFM plus delimiter math for the streaming arm: inline `$…$`, `\(…\)`,
- * `\[…\]`, and same-line `$$…$$` parse as math, while the multi-line `$$…$$`
- * fence is left out so an unclosed fence stays literal rather than flashing a
- * KaTeX error or swallowing same-line content (the standard `mathFlow` accepts
- * an unclosed fence at EOF). The fence re-enters via {@link parseGfmWithMath}
- * on the settled swap.
- * @param text - Markdown source.
- * @returns The mdast root.
- */
-export function parseGfmWithMathStreaming(text: string): Root {
-  const mathInline = math()
-  return fromMarkdown(text, {
-    extensions: [gfm(), cjkFriendlyStrong(), mathCompatibility(), { text: mathInline.text }],
-    mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
-  })
-}
