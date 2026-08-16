@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { IconCheckOutline16, IconSendOutline16, IconStopFill16 } from '../../icons/index.tsx'
+import {
+  IconCheckOutline16,
+  IconEyeOffOutline16,
+  IconEyeOutline16,
+  IconSendOutline16,
+  IconStopFill16,
+} from '../../icons/index.tsx'
 import type {
+  ActiveFileView,
   AtCandidatesView,
   AtRefPayload,
   AgentPresetSelectView,
@@ -38,7 +45,8 @@ interface ComposerProps {
   onTextChange: (text: string) => void
   /** Incremented only after the owning service action is accepted. */
   commitSeq: number
-  onSend: (text: string, gesture: ComposerSubmitGesture) => void
+  /** 发送：attachments = 眼睛启用的自动附带文件（绝对路径，扩展侧构造 @ 引用）。 */
+  onSend: (text: string, gesture: ComposerSubmitGesture, attachments: string[]) => void
   onCancel: () => void
   /** @ 菜单打开 → 扩展侧枚举候选。 */
   onAtOpen: () => void
@@ -49,6 +57,12 @@ interface ComposerProps {
   /** 扩展侧构造好的 @ 插入文本；非 null 时替换触发 token。 */
   atInsert: string | null
   onAtInsertConsumed: () => void
+  /** 自动附带：当前活动编辑器文件（输入框下方文件条；null = 隐藏）。 */
+  activeFile: ActiveFileView | null
+  /** 自动附带：眼睛开关状态（true = 该文件随消息作为 @ 引用发送）。 */
+  activeFileEnabled: boolean
+  /** 自动附带：眼睛开关点击 → 翻转启用态。 */
+  onActiveFileToggle: (enabled: boolean) => void
   /** / 命令目录快照（契约跟随；null = 未知/加载中——绝不静默降级为普通文本）。 */
   commands: { available: boolean; items: CommandDescriptorView[] } | null
   /** / 菜单技能目录快照（skill.list；null = 未知/加载中；纯附加、不参与 commands 门槛）。 */
@@ -63,8 +77,12 @@ interface ComposerProps {
   onModelSelect: (provider: string, model: string, effort?: string) => void
   /** 权限席位 + /permission 弹出选择器的投影数据（null = 能力缺席 → 席位隐藏）。 */
   permissions: PermissionSelectView | null
-  /** 选中权限预设（已过风险门）→ 提交 `/permission <preset>`。 */
+  /** /permission 弹出层选中预设（已过风险门）→ 提交 `/permission <preset>`（消费输入框内
+   *  的 `/permission` token，清空草稿）。 */
   onPermissionSelect: (preset: string) => void
+  /** 输入框下方常驻权限席位选中预设 → 提交 `/permission <preset>`，但保留草稿：
+   *  席位切换与用户正在输入的内容无关，不应清空输入框。 */
+  onPermissionSeatSelect: (preset: string) => void
   /** /permission 弹出层打开 → 解析会话并加载投影（空/未绑定会话可用）。 */
   onPermissionOpen: () => void
   /** Agent Preset roster + stage state for this composer slot. */
@@ -121,6 +139,9 @@ export function Composer({
   atCandidates,
   atInsert,
   onAtInsertConsumed,
+  activeFile,
+  activeFileEnabled,
+  onActiveFileToggle,
   commands,
   skills,
   onCommandOpen,
@@ -131,6 +152,7 @@ export function Composer({
   onModelSelect,
   permissions,
   onPermissionSelect,
+  onPermissionSeatSelect,
   onPermissionOpen,
   agentPresets,
   agentPresetSession,
@@ -249,8 +271,9 @@ export function Composer({
       return
     }
     if (decision === 'send') {
-      // 普通消息：手势透传，扩展侧按 running + busyEnter 解析 queue/steer。
-      onSend(value, gesture)
+      // 普通消息：手势透传，扩展侧按 running + busyEnter 解析 queue/steer；
+      // 眼睛启用的自动附带文件随消息回传（用户手 @ 的文件已留在输入文本里）。
+      onSend(value, gesture, activeFile !== null && activeFileEnabled ? [activeFile.absolutePath] : [])
       return
     }
     // 运行锁：/ 命令、/model、/permission 等会话动作在运行期间冻结（不经 busy-enter 路径）。
@@ -723,11 +746,12 @@ export function Composer({
             <div className="max-h-[240px] overflow-y-auto py-1">{menuRows()}</div>
           </div>
         )}
-        {/* 高亮层：输入盒的底色与边框都画在这里（对齐 Cline 的 absolute 层）。 */}
+        {/* 高亮层：输入盒的底色与边框都画在这里（对齐 Cline 的 absolute 层）。
+            蓝色细线包裹 + 由内向外渐隐的短光晕（composer-glow）。 */}
         <div
           ref={highlightRef}
           aria-hidden
-          className={`absolute bottom-2.5 top-2.5 left-3.5 right-3.5 overflow-hidden whitespace-pre-wrap break-words rounded-xs bg-input-background ${focused ? '' : 'border border-input-border'
+          className={`absolute bottom-2.5 top-2.5 left-3.5 right-3.5 overflow-hidden whitespace-pre-wrap break-words rounded-xs bg-input-background composer-glow ${focused ? 'composer-glow-focused' : ''
             }`}
           style={{
             color: 'transparent',
@@ -793,6 +817,46 @@ export function Composer({
           )}
         </div>
       </div>
+      {/* 自动附带：当前活动编辑器文件条（聊天框正下方）。左侧眼睛 = 是否随消息
+          作为 @ 引用发送；停用态变暗（eye-off）。用户手 @ 的文件仍留在输入框里。 */}
+      {activeFile !== null && (
+        <div className="flex items-center gap-1.5 px-3.5 pb-1">
+          <div
+            className={`flex max-w-full items-center gap-1 rounded-xs border px-1.5 py-0.5 ${
+              activeFileEnabled
+                ? 'border-input-border bg-input-background'
+                : 'border-input-border bg-transparent opacity-60'
+            }`}
+            title={activeFile.absolutePath}
+          >
+            <button
+              type="button"
+              onClick={() => onActiveFileToggle(!activeFileEnabled)}
+              className={`input-icon-button flex size-4 shrink-0 items-center justify-center rounded-xs ${
+                activeFileEnabled ? 'text-input-foreground' : 'text-description'
+              }`}
+              title={
+                activeFileEnabled
+                  ? '已启用：该文件将作为 @ 引用随消息发送（点击停用）'
+                  : '已停用：该文件不会作为对话输入（点击启用）'
+              }
+              aria-pressed={activeFileEnabled}
+            >
+              {activeFileEnabled ? <IconEyeOutline16 size={14} /> : <IconEyeOffOutline16 size={14} />}
+            </button>
+            <span
+              className={`truncate text-xs ${activeFileEnabled ? 'text-input-foreground' : 'text-description'}`}
+            >
+              {activeFile.relativePath}
+            </span>
+            {activeFile.dirty ? (
+              <span className="shrink-0 text-xs text-warning" title="有未保存的修改">
+                ●
+              </span>
+            ) : null}
+          </div>
+        </div>
+      )}
       {/* 输入框下方的席位（右对齐）：模式、权限、模型席位并列。running/未就绪时禁用，
           routable=false 不锁模型席位（作为恢复入口）。 */}
       <div className="flex flex-wrap items-center justify-end gap-2 px-3.5 pb-1">
@@ -807,7 +871,7 @@ export function Composer({
         />
         <PermissionSelect
           value={permissions}
-          onSelect={onPermissionSelect}
+          onSelect={onPermissionSeatSelect}
           disabled={disabled || running || submitting || modelSubmitting || presetSubmitting || serviceDisabled}
         />
         <ModelSelect

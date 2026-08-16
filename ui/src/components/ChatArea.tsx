@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ConversationItem, ToolResultView } from '../../../src/shared/protocol.ts'
 import { MarkdownText, type MarkdownFileMentions } from '../markdown/MarkdownText.tsx'
 import {
@@ -16,6 +16,16 @@ import {
 interface ChatAreaProps {
   items: ConversationItem[]
   running: boolean
+  /** 当前渲染的会话 id（切换会话时丢弃未消费的翻页锚点）。 */
+  sessionId?: string | null
+  /** 历史分页：会话日志还有更早记录可加载（session.history hasMore）。 */
+  hasMore: boolean
+  /** 「加载更早」请求进行中（扩展侧完成后随 conversation 快照复位）。 */
+  loadingOlder: boolean
+  /** 「加载更早」失败反馈（内联展示在按钮下方；null = 无错误）。 */
+  loadOlderError?: string | null
+  /** 点击「加载更早」→ 扩展侧向前翻页（成功经快照前置结算）。 */
+  onLoadOlder?: () => void
   /** M5: 工作区根路径（用于 tool 摘要路径相对化；缺席 = 原样显示）。 */
   workspacePath?: string
   /** M5b: 文件链接点击回调（webview → 扩展侧 openFile）。 */
@@ -610,8 +620,15 @@ function ItemView({
   }
 }
 
-export function ChatArea({ items, running, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions }: ChatAreaProps) {
+export function ChatArea({
+  items, running, sessionId, hasMore, loadingOlder, loadOlderError, onLoadOlder, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions,
+}: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 加载更早的滚动锚：记录点击时视口顶相对内容顶的偏移，新页前置后复位——
+  // 视口停在原消息上不跳动（对齐参考客户端 loadOlderAnchored）。
+  const anchorRef = useRef<number | null>(null)
+  const prevFirstRef = useRef<ConversationItem | undefined>(undefined)
+  const prevSessionRef = useRef<string | null | undefined>(sessionId)
 
   // Streaming: keep the newest content in view (sticky when the user is
   // already at the bottom).
@@ -622,16 +639,64 @@ export function ChatArea({ items, running, workspacePath, onOpenFile, onOpenExte
     if (stick) el.scrollTop = el.scrollHeight
   }, [items])
 
+  // 翻页前置结算：仅当列表头部发生变化（prepend 到达）时消耗锚点——
+  // 纯流式追加只更新尾部，头部条目引用不变，不会误触锚点。会话切换丢弃
+  // 未消费的锚点（避免把上一个会话的锚复位到新会话列表上）。
+  useLayoutEffect(() => {
+    if (prevSessionRef.current !== sessionId) {
+      prevSessionRef.current = sessionId
+      prevFirstRef.current = items[0]
+      anchorRef.current = null
+      return
+    }
+    const first = items[0]
+    if (first === prevFirstRef.current) return
+    prevFirstRef.current = first
+    if (anchorRef.current === null) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight - anchorRef.current
+    anchorRef.current = null
+  }, [items, sessionId])
+
+  // 翻页失败没有快照前置，丢弃未消费的锚点，避免下一次头部变化时误复位。
+  useEffect(() => {
+    if (loadOlderError) anchorRef.current = null
+  }, [loadOlderError])
+
+  const handleLoadOlder = (): void => {
+    const el = scrollRef.current
+    anchorRef.current = el ? el.scrollHeight - el.scrollTop : 0
+    onLoadOlder?.()
+  }
+
+  const loadOlderRow = hasMore ? (
+    <div className="flex flex-col items-center gap-1 pt-2.5">
+      <button
+        type="button"
+        disabled={loadingOlder}
+        onClick={handleLoadOlder}
+        className="cursor-pointer rounded-xs border border-border-panel px-2.5 py-1 text-xs text-description hover:border-border hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+      >
+        {loadingOlder ? '加载中…' : '加载更早'}
+      </button>
+      {loadOlderError ? <p className="text-xs text-error">{loadOlderError}</p> : null}
+    </div>
+  ) : null
+
   return (
     <div ref={scrollRef} className="scrollable min-h-0 flex-1 overflow-y-auto">
       {items.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="px-6 text-center text-sm text-description">
-            {running ? '回复中…' : '选择一个会话，或点击 ＋ 新建。'}
-          </p>
+        <div className="flex h-full flex-col">
+          {loadOlderRow}
+          <div className="flex flex-1 items-center justify-center">
+            <p className="px-6 text-center text-sm text-description">
+              {running ? '回复中…' : '选择一个会话，或点击 ＋ 新建。'}
+            </p>
+          </div>
         </div>
       ) : (
         <div className="px-4 pb-2">
+          {loadOlderRow}
           {items.map((item, i) => (
             // M5b: tool/command 用稳定业务 id 做 key（折叠状态随卡保留，不被位置键错位）。
             <div

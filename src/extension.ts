@@ -303,6 +303,29 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // 自动附带：活动编辑器 / 保存 / 文档变更 → 上送当前文件（composer 下方文件条）。
+  // 以 路径+dirty 为键去重——打字只会在 dirty 翻转（false→true）时补发一次，
+  // 不会每次按键重复上送；工作区目录变化强制重推（相对路径基准可能已变）。
+  let lastActiveFileKey: string | null = null;
+  const postActiveFile = (): void => {
+    const editor = vscode.window.activeTextEditor;
+    const key = editor
+      ? `${editor.document.uri.fsPath}|${editor.document.isDirty}`
+      : null;
+    if (key === lastActiveFileKey) return;
+    lastActiveFileKey = key;
+    provider.postActiveFile();
+  };
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(postActiveFile),
+    vscode.workspace.onDidSaveTextDocument(postActiveFile),
+    vscode.workspace.onDidChangeTextDocument(postActiveFile),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      lastActiveFileKey = null;
+      postActiveFile();
+    }),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand("weinibuliu.dsh-vsc.focus", async () => {
       await vscode.commands.executeCommand("weinibuliu-dsh-vsc.chat.focus");

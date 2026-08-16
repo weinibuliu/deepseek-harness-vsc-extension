@@ -874,3 +874,39 @@ export const IconArchiveOutline20 = ({ size = 20, className }: IconProps) => (
     <path d="M12.7962 12.5661V11.0832H7.20548V12.5661L12.7962 12.5661Z" fill="currentColor" />
   </svg>
 )
+
+/**
+ * ic_ds_eye_outline_16 — 自动附带文件条的眼睛开关（启用态）。
+ * 形状取自 VS Code codicon `eye`（MIT），fill 风格与本集一致。
+ */
+export const IconEyeOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M16 8C16 8 13 2.5 8 2.5C3 2.5 0 8 0 8C0 8 3 13.5 8 13.5C13 13.5 16 8 16 8ZM1.173 8C2.22 6.216 3.639 4.931 5.17 4.187C5.891 3.749 6.885 3.5 8 3.5C9.115 3.5 10.109 3.749 10.83 4.187C12.361 4.931 13.78 6.216 14.827 8C13.78 9.784 12.361 11.069 10.83 11.813C10.109 12.251 9.115 12.5 8 12.5C6.885 12.5 5.891 12.251 5.17 11.813C3.639 11.069 2.22 9.784 1.173 8Z"
+      fill="currentColor"
+    />
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M8 5C6.343 5 5 6.343 5 8C5 9.657 6.343 11 8 11C9.657 11 11 9.657 11 8C11 6.343 9.657 5 8 5Z"
+      fill="currentColor"
+    />
+  </svg>
+)
+
+/**
+ * ic_ds_eye_off_outline_16 — 自动附带文件条的眼睛开关（停用态）。
+ * 形状取自 VS Code codicon `eye-closed`（MIT），fill 风格与本集一致。
+ */
+export const IconEyeOffOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M11.06 9.06l.94.94-2.12 2.12-.94-.94L11.06 9.06zM3.5 2.5L13.5 12.5L12.5 13.5L2.5 3.5L3.5 2.5zM9.9 5.04C9.32 4.7 8.68 4.5 8 4.5c-2.12 0-3.879 1.168-5.168 2.457A13.233 13.233 0 0 0 1.172 8c.69 1.302 1.46 2.218 2.66 3.043C5.12 12.332 6.88 13.5 8 13.5c.32 0 .63-.034.93-.094L7.4 11.876A3.002 3.002 0 0 1 5 9.48L3.5 7.98l.94-.94 2.12 2.12.94.94 2.5 2.5.94.94-2.12 2.12-.94-.94-1.36-1.36-.9-.9L9.9 5.04zM11.06 9.06l-.94.94L8 7.88l-.94.94-1.06-1.06L5 6.7l-.06-.06L3.5 5.2l.94-.94 1.62 1.62A6.99 6.99 0 0 1 8 4.5c2.12 0 3.879 1.168 5.168 2.457A13.233 13.233 0 0 1 14.828 8a13.2 13.2 0 0 1-.94 1.556L11.06 9.06z"
+      fill="currentColor"
+    />
+  </svg>
+)

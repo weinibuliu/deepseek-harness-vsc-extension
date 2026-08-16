@@ -12,12 +12,17 @@ export type ExtensionToWebviewMessage =
   // 瞬时操作错误通知（RPC/流级失败；只进状态栏 detail，绝不驱动启动门）。
   | { type: "notice"; text: string }
   | { type: "workspace"; workspace: WorkspaceView | null }
+  // 自动附带：当前 VS Code 活动编辑器文件（composer 下方文件条；null = 无活动编辑器）。
+  // 眼睛开关由 webview 按会话槽持有；启用文件随 send 的 attachments 回传扩展侧构造 @ 引用。
+  | { type: "activeFile"; file: ActiveFileView | null }
   // assistant markdown 渲染（ADR-0004）：工作区真实文件相对路径集（posix），供
   // 行内代码 token 的文件提及判定（settled-only）；超保险丝时为空数组（禁用提及）。
   | { type: "fileIndex"; files: string[] }
   | { type: "sessions"; items: SessionSummary[] }
   | { type: "selectedSession"; sessionId: string | null; navigationId?: number }
   | { type: "conversation"; sessionId: string; snapshot: ConversationSnapshot }
+  // 历史分页：加载更早失败反馈（webview 复位「加载更早」加载态并内联展示错误）。
+  | { type: "loadOlderError"; sessionId: string; text: string }
   // M3b: @ 菜单候选（文件 + 问题）一次性上送；菜单打开时拉取一次。
   | {
       type: "atCandidates";
@@ -131,12 +136,17 @@ export type WebviewToExtensionMessage =
       text: string;
       gesture?: ComposerSubmitGesture;
       occupiedBlankSessionIds?: string[];
+      // 自动附带：眼睛启用的活动文件绝对路径（扩展侧折叠成 @ 引用后提交）。
+      attachments?: string[];
     }
   // 所有会话级操作在发起时显式绑定目标，扩展侧不得用当前选中会话重写。
   | { type: "cancel"; sessionId: string }
   | { type: "archiveSession"; sessionId: string }
   | { type: "renameSession"; sessionId: string; currentTitle: string | null }
   | { type: "refresh" }
+  // 历史分页：加载所选会话更早的记录（session.history beforeSeq 向后翻页；
+  // 成功经 conversation 快照结算、失败经 loadOlderError 反馈）。
+  | { type: "loadOlder"; sessionId: string }
   // M3b: @ 菜单打开 → 扩展侧枚举候选上送（路径基准在 atResolve 时按当前会话计算）。
   | { type: "atOpen"; sessionId: string | null; requestId: number }
   // M3b: 菜单选中 @ 引用 → 扩展侧构造插入文本并回投 atResult。
@@ -252,6 +262,19 @@ export type WebviewToExtensionMessage =
   // M5b: 对话流文件链接点击 → 扩展侧在当前 VS Code 窗口打开对应文件
   // （tool 卡片路径 / 工作区指令 change.path；相对路径以工作区根为锚）。
   | { type: "openFile"; path: string };
+
+/**
+ * 自动附带文件条的活动编辑器投影（composer 下方展示；absolutePath 在 send 时
+ * 经 attachments 回传扩展侧做 @ 引用基准计算）。
+ */
+export interface ActiveFileView {
+  /** 绝对路径（回传做基准计算）。 */
+  absolutePath: string;
+  /** 展示路径：工作区内 = 相对 Workspace 根 posix 路径；工作区外 = basename。 */
+  relativePath: string;
+  /** 活动文件有未保存修改。 */
+  dirty: boolean;
+}
 
 /** Wire projection of a workspace row (workspace.schema workspaceViewSchema). */
 export interface WorkspaceView {
@@ -436,6 +459,8 @@ export interface ConversationSnapshot {
   items: ConversationItem[];
   running: boolean;
   lastSeq: number;
+  /** True when the log holds events older than the loaded window（「加载更早」可用）。 */
+  hasMore: boolean;
 }
 
 // ---- M3c: 上下文注入节点（非用户 user/message；provenance 与 body 全部 fold 解析）----

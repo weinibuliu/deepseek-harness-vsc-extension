@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
+  ActiveFileView,
   AtCandidatesView,
   AtRefPayload,
   BusyEnterBehavior,
@@ -395,7 +396,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             sessionId,
             message.gesture ?? "enter",
           );
-          const result = await this.sessions.prompt(sessionId, text, mode);
+          // 自动附带：把眼睛启用的活动文件折叠成消息前的 @ 引用行。
+          const finalText = await this.foldAttachments(
+            text,
+            sessionId,
+            message.attachments,
+          );
+          const result = await this.sessions.prompt(sessionId, finalText, mode);
           this.post({
             type: "composerOperation",
             sourceSessionId,
@@ -478,6 +485,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       case "renameSession":
         await this.renameSession(message.sessionId, message.currentTitle);
+        break;
+      // 历史分页：加载所选会话更早的记录（session.history beforeSeq 向后翻页）。
+      case "loadOlder":
+        await this.serveLoadOlder(message.sessionId);
         break;
       // M6: 设置面板。
       case "settingsOpen":
@@ -814,6 +825,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // 繁忙时 Enter 偏好 best-effort 加载（失败回落 queue，不阻塞重水合）。
     this.busyEnter = await this.settings.loadBusyEnter();
     await this.refreshSessions();
+    // 自动附带：webview 重水合时补发当前活动编辑器文件。
+    this.postActiveFile();
     if (facts.status === "ready")
       await this.refreshAgentPresets(this._selectedSessionId);
     // 面板数据：ready（供「无可用 Provider」引导页派生）或终态（error/stopped，供「关于」gate）
@@ -895,6 +908,71 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.atRef.verifyBaseline(sessionId).catch((error: unknown) => {
       this.post({ type: "notice", text: String(error) });
     });
+  }
+
+  /**
+   * 历史向前翻页（「加载更早」）：扩展侧调 session.history beforeSeq 取上一页，
+   * 成功后快照经 conversations change 事件自动推送（与流式更新同通道）；
+   * 失败经 loadOlderError 反馈，webview 复位按钮加载态并内联展示错误。
+   */
+  private async serveLoadOlder(sessionId: string): Promise<void> {
+    try {
+      await this.conversations.loadOlder(sessionId);
+    } catch (error) {
+      this.post({ type: "loadOlderError", sessionId, text: String(error) });
+    }
+  }
+
+  /**
+   * 自动附带：把启用文件折叠成消息前的 @ 引用行（与用户手 @ 的引用同机制——
+   * dsh 侧按其 cwd 解析）。每个文件经基准计算取相对/绝对路径，失败回退绝对
+   * 路径（路径永在）；与用户文本中已有的引用去重（同一 token 不重复注入）。
+   */
+  private async foldAttachments(
+    text: string,
+    sessionId: string,
+    attachments?: string[],
+  ): Promise<string> {
+    const list = attachments ?? [];
+    if (list.length === 0) return text;
+    const refs: string[] = [];
+    const seen = new Set<string>();
+    for (const absolutePath of list) {
+      let ref = `@${absolutePath}`;
+      try {
+        const result = await this.atRef.buildReference(
+          { absolutePath, relativePath: "", pinned: false, dirty: false },
+          sessionId,
+        );
+        ref = `@${result.path}`;
+      } catch {
+        // 无工作区 / 基准计算失败：绝对路径兜底。
+      }
+      if (seen.has(ref) || text.includes(ref)) continue;
+      seen.add(ref);
+      refs.push(ref);
+    }
+    if (refs.length === 0) return text;
+    return `${refs.join("\n")}\n\n${text}`;
+  }
+
+  /**
+   * 自动附带：上送当前活动编辑器文件（composer 下方文件条数据源）。
+   * 无编辑器 → null（webview 隐藏文件条）；由 extension.ts 的活动编辑器 /
+   * 工作区目录变化监听与 hydrate 调用。
+   */
+  postActiveFile(): void {
+    const file = this.atRef.activeFile();
+    if (!file) {
+      this.post({ type: "activeFile", file: null });
+      return;
+    }
+    const view: ActiveFileView = {
+      absolutePath: file.absolutePath,
+      relativePath: file.relativePath,
+      dirty: file.dirty,
+    };
+    this.post({ type: "activeFile", file: view });
   }
 
   /** Replay the session's history into the conversation fold and push it. */
