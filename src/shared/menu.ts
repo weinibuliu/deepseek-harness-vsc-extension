@@ -18,79 +18,79 @@ import type {
   PermissionSelectView,
   PresetOptionView,
   SkillDescriptorView,
-} from './protocol.ts'
-import type { TriggerPosition } from './trigger.ts'
+} from "./protocol.ts";
+import type { TriggerPosition } from "./trigger.ts";
 
-export type MenuKind = 'at' | 'slash'
+export type MenuKind = "at" | "slash";
 
-export type AtCategory = 'files' | 'problems'
+export type AtCategory = "files" | "problems";
 
 /** / 菜单的可见条目联合：命令（含 /model 客户端贡献）与技能（skill.list）。 */
 export type MenuEntry =
-  | ({ kind: 'command' } & CommandDescriptorView)
-  | ({ kind: 'skill' } & SkillDescriptorView)
+  | ({ kind: "command" } & CommandDescriptorView)
+  | ({ kind: "skill" } & SkillDescriptorView);
 
 /** /model 弹出层（态 B）：当前 provider 分组下标 + 组内模型高亮。 */
 export interface ModelMenu {
-  group: number
-  index: number
-  loading: boolean
-  failed: boolean
+  group: number;
+  index: number;
+  loading: boolean;
+  failed: boolean;
 }
 
 /** /permission 弹出层：扁平预设列表（custom 只显示不可选），单一下标高亮。 */
 export interface PermissionMenu {
-  index: number
-  loading: boolean
-  failed: boolean
+  index: number;
+  loading: boolean;
+  failed: boolean;
 }
 
 export interface MenuState {
-  open: boolean
-  kind: MenuKind | null
+  open: boolean;
+  kind: MenuKind | null;
   /** 触发到光标之间的 query（菜单过滤用）。 */
-  query: string
+  query: string;
   /** 触发 token 的替换 span（插入/替换草稿用）。 */
-  span: { start: number; end: number } | null
+  span: { start: number; end: number } | null;
   /** 触发 token 位置（leading/inline；inline 时 hint 命令不参与 claim，对齐 dsh）。 */
-  position: TriggerPosition
+  position: TriggerPosition;
   /** 当前高亮：态 A = 类别行下标；态 B = 条目下标；/ 菜单 = 命令行下标。 */
-  index: number
+  index: number;
   /** 候选是否仍在加载（@ 打开时一次性拉取）。 */
-  loading: boolean
+  loading: boolean;
   /** 候选拉取失败（@ 或 / 目录）。 */
-  failed: boolean
+  failed: boolean;
   /** @ 专用：是否已下钻态 B。 */
-  atDrill: boolean
+  atDrill: boolean;
   /** @ 专用：当前类别。 */
-  atCategory: AtCategory
+  atCategory: AtCategory;
   /** @ 候选数据。 */
-  candidates: AtCandidatesView
+  candidates: AtCandidatesView;
   /** / 命令目录。 */
-  entries: CommandDescriptorView[]
+  entries: CommandDescriptorView[];
   /** / 技能目录（skill.list；纯附加，合并进可见行）。 */
-  skills: SkillDescriptorView[]
+  skills: SkillDescriptorView[];
   /** /model 弹出层；null = 未打开。 */
-  model: ModelMenu | null
+  model: ModelMenu | null;
   /** 已加载的模型分组（/model 态 B 数据）。 */
-  models: ModelGroupView[]
+  models: ModelGroupView[];
   /** /permission 弹出层；null = 未打开。 */
-  permission: PermissionMenu | null
+  permission: PermissionMenu | null;
   /** 已加载的权限预设（permissions 投影数据）。 */
-  permissions: PermissionSelectView | null
+  permissions: PermissionSelectView | null;
 }
 
 export const initialMenuState: MenuState = {
   open: false,
   kind: null,
-  query: '',
+  query: "",
   span: null,
-  position: 'leading',
+  position: "leading",
   index: 0,
   loading: false,
   failed: false,
   atDrill: false,
-  atCategory: 'files',
+  atCategory: "files",
   candidates: { files: [], problems: [] },
   entries: [],
   skills: [],
@@ -98,53 +98,71 @@ export const initialMenuState: MenuState = {
   models: [],
   permission: null,
   permissions: null,
-}
+};
 
 export type MenuAction =
-  | { type: 'open'; kind: MenuKind; span: { start: number; end: number }; position: TriggerPosition }
-  | { type: 'query'; query: string; span: { start: number; end: number }; position: TriggerPosition }
-  | { type: 'candidates'; candidates: AtCandidatesView }
-  | { type: 'candidatesFailed' }
-  | { type: 'commands'; entries: CommandDescriptorView[] }
-  | { type: 'commandsFailed' }
-  | { type: 'skills'; entries: SkillDescriptorView[] }
-  | { type: 'models'; groups: ModelGroupView[] }
-  | { type: 'modelsFailed' }
-  | { type: 'permissions'; value: PermissionSelectView }
-  | { type: 'permissionsFailed' }
-  | { type: 'move'; dir: 1 | -1 }
-  | { type: 'enter' }
-  | { type: 'escape' }
-  | { type: 'close' }
+  | {
+      type: "open";
+      kind: MenuKind;
+      span: { start: number; end: number };
+      position: TriggerPosition;
+    }
+  | {
+      type: "query";
+      query: string;
+      span: { start: number; end: number };
+      position: TriggerPosition;
+    }
+  | { type: "candidates"; candidates: AtCandidatesView }
+  | { type: "candidatesFailed" }
+  | { type: "commands"; entries: CommandDescriptorView[] }
+  | { type: "commandsFailed" }
+  | { type: "skills"; entries: SkillDescriptorView[] }
+  | { type: "models"; groups: ModelGroupView[] }
+  | { type: "modelsFailed" }
+  | { type: "permissions"; value: PermissionSelectView }
+  | { type: "permissionsFailed" }
+  | { type: "move"; dir: 1 | -1 }
+  | { type: "enter" }
+  | { type: "escape" }
+  | { type: "close" };
 
 /** Enter 的分派结果：由 Composer 消费（插入引用 / claim / 执行 / 下钻 / 放行）。 */
 export type EnterOutcome =
-  | { kind: 'insert-file'; candidate: AtFileCandidateView }
-  | { kind: 'insert-problem'; candidate: AtProblemCandidateView }
-  | { kind: 'claim'; entry: CommandDescriptorView }
-  | { kind: 'execute'; entry: CommandDescriptorView }
-  | { kind: 'insert-skill'; entry: SkillDescriptorView }
-  | { kind: 'model-drill' }
-  | { kind: 'select-model'; provider: string; model: ModelGroupView['models'][number] }
-  | { kind: 'permission-drill' }
-  | { kind: 'select-permission'; preset: string }
+  | { kind: "insert-file"; candidate: AtFileCandidateView }
+  | { kind: "insert-problem"; candidate: AtProblemCandidateView }
+  | { kind: "claim"; entry: CommandDescriptorView }
+  | { kind: "execute"; entry: CommandDescriptorView }
+  | { kind: "insert-skill"; entry: SkillDescriptorView }
+  | { kind: "model-drill" }
+  | {
+      kind: "select-model";
+      provider: string;
+      model: ModelGroupView["models"][number];
+    }
+  | { kind: "permission-drill" }
+  | { kind: "select-permission"; preset: string }
   /** @ 类别层 → 条目层的状态迁移（Composer 无需额外动作）。 */
-  | { kind: 'drill' }
+  | { kind: "drill" }
   /** 无可选行（空/加载中）：按 dsh 语义放行 Enter（回落到 composer 的发送）。 */
-  | { kind: 'pass' }
-  | { kind: 'none' }
+  | { kind: "pass" }
+  | { kind: "none" };
 
-const CATEGORY_ROWS: AtCategory[] = ['files', 'problems']
+const CATEGORY_ROWS: AtCategory[] = ["files", "problems"];
 
 /** /model 客户端贡献（D14）：插件侧实现，provider 分组 → session.selectModel。 */
 export const MODEL_CONTRIBUTION: CommandDescriptorView = {
-  name: 'model',
-  description: '选择当前会话的模型（provider 分组 → 模型）',
-}
+  name: "model",
+  description: "选择当前会话的模型（provider 分组 → 模型）",
+};
 
 /** 合并 /model 客户端贡献（宿主命令同名冲突时保持宿主行）。 */
-function withModelContribution(entries: CommandDescriptorView[]): CommandDescriptorView[] {
-  return entries.some((e) => e.name === 'model') ? entries : [...entries, MODEL_CONTRIBUTION]
+function withModelContribution(
+  entries: CommandDescriptorView[],
+): CommandDescriptorView[] {
+  return entries.some((e) => e.name === "model")
+    ? entries
+    : [...entries, MODEL_CONTRIBUTION];
 }
 
 /**
@@ -154,27 +172,28 @@ function withModelContribution(entries: CommandDescriptorView[]): CommandDescrip
  * 后随字符已是空白（空格/换行）时不重复补空格。
  */
 export function insertionGap(tail: string): string {
-  if (tail === '') return ' '
-  const next = tail[0]
-  if (next === ' ' || next === '\n') return ''
-  return ' '
+  if (tail === "") return " ";
+  const next = tail[0];
+  if (next === " " || next === "\n") return "";
+  return " ";
 }
 
 /** 当前 @ 类别的可见条目（query 过滤；文件匹配相对路径，问题匹配路径或消息）。 */
 export function visibleAtItems(
   state: MenuState,
 ): AtFileCandidateView[] | AtProblemCandidateView[] {
-  const q = state.query.trim().toLowerCase()
-  if (state.atCategory === 'files') {
-    const files = state.candidates.files
-    if (!q) return files
-    return files.filter((f) => f.relativePath.toLowerCase().includes(q))
+  const q = state.query.trim().toLowerCase();
+  if (state.atCategory === "files") {
+    const files = state.candidates.files;
+    if (!q) return files;
+    return files.filter((f) => f.relativePath.toLowerCase().includes(q));
   }
-  const problems = state.candidates.problems
-  if (!q) return problems
+  const problems = state.candidates.problems;
+  if (!q) return problems;
   return problems.filter(
-    (p) => p.path.toLowerCase().includes(q) || p.message.toLowerCase().includes(q),
-  )
+    (p) =>
+      p.path.toLowerCase().includes(q) || p.message.toLowerCase().includes(q),
+  );
 }
 
 /** / 菜单可见行（命令 + 技能合并；query 过滤：名称前缀优先，其次名称包含，再描述包含）。
@@ -183,190 +202,239 @@ export function visibleAtItems(
  *  对齐 dsh ui-commands），技能无 hint 恒显示。 */
 export function visibleCommandRows(state: MenuState): MenuEntry[] {
   const commandRows: MenuEntry[] = state.entries
-    .filter((e) => state.position === 'leading' || e.hint === undefined)
+    .filter((e) => state.position === "leading" || e.hint === undefined)
     .map((e) => ({
-      kind: 'command',
+      kind: "command",
       name: e.name,
       description: e.description,
       ...(e.hint !== undefined ? { hint: e.hint } : {}),
-    }))
+    }));
   const skillRows: MenuEntry[] = state.skills
     .filter((s) => !state.entries.some((e) => e.name === s.name))
-    .map((s) => ({ kind: 'skill', name: s.name, description: s.description, modelInvocable: s.modelInvocable }))
-  const rows: MenuEntry[] = [...commandRows, ...skillRows]
-  const q = state.query.trim().toLowerCase()
-  if (!q) return rows
+    .map((s) => ({
+      kind: "skill",
+      name: s.name,
+      description: s.description,
+      modelInvocable: s.modelInvocable,
+    }));
+  const rows: MenuEntry[] = [...commandRows, ...skillRows];
+  const q = state.query.trim().toLowerCase();
+  if (!q) return rows;
   const rank = (e: MenuEntry): number => {
-    const name = e.name.toLowerCase()
-    if (name.startsWith(q)) return 0
-    if (name.includes(q)) return 1
-    return e.description.toLowerCase().includes(q) ? 2 : -1
-  }
+    const name = e.name.toLowerCase();
+    if (name.startsWith(q)) return 0;
+    if (name.includes(q)) return 1;
+    return e.description.toLowerCase().includes(q) ? 2 : -1;
+  };
   const ranked = rows
     .map((e) => ({ e, rank: rank(e) }))
     .filter((r) => r.rank !== -1)
-    .sort((a, b) => a.rank - b.rank)
-  return ranked.map((r) => r.e)
+    .sort((a, b) => a.rank - b.rank);
+  return ranked.map((r) => r.e);
 }
 
 /** 当前模型分组（/model 态 B；group 越界时取最后一个）。 */
 export function currentModelGroup(state: MenuState): ModelGroupView | null {
-  const model = state.model
-  if (!model) return null
-  const groups = state.models
-  if (groups.length === 0) return null
-  return groups[Math.min(model.group, groups.length - 1)] ?? null
+  const model = state.model;
+  if (!model) return null;
+  const groups = state.models;
+  if (groups.length === 0) return null;
+  return groups[Math.min(model.group, groups.length - 1)] ?? null;
 }
 
 /** /permission 弹出层的可选预设（custom 派生态只显示不可选，故过滤）。 */
 export function permissionOptions(state: MenuState): PresetOptionView[] {
-  return (state.permissions?.options ?? []).filter((option) => option.value !== 'custom')
+  return (state.permissions?.options ?? []).filter(
+    (option) => option.value !== "custom",
+  );
 }
 
 /** 菜单态 B 高亮总数（供 move 取模 / 夹取）。 */
 export function rowCount(state: MenuState): number {
-  if (state.kind === 'at') {
-    if (state.atDrill) return visibleAtItems(state).length
-    return CATEGORY_ROWS.length
+  if (state.kind === "at") {
+    if (state.atDrill) return visibleAtItems(state).length;
+    return CATEGORY_ROWS.length;
   }
-  if (state.kind === 'slash') {
+  if (state.kind === "slash") {
     if (state.model) {
-      const group = currentModelGroup(state)
-      if (!group) return 0
-      return group.models.length
+      const group = currentModelGroup(state);
+      if (!group) return 0;
+      return group.models.length;
     }
-    if (state.permission) return permissionOptions(state).length
-    return visibleCommandRows(state).length
+    if (state.permission) return permissionOptions(state).length;
+    return visibleCommandRows(state).length;
   }
-  return 0
+  return 0;
 }
 
 /**
  * 把高亮索引夹进可见行数（为空时归零）。组件在渲染前调用，保证 index 永不越界。
  */
 export function clampIndex(state: MenuState): MenuState {
-  const count = rowCount(state)
-  const index = count === 0 ? 0 : Math.min(state.index, count - 1)
-  return index === state.index ? state : { ...state, index }
+  const count = rowCount(state);
+  const index = count === 0 ? 0 : Math.min(state.index, count - 1);
+  return index === state.index ? state : { ...state, index };
 }
 
 /**
  * @ 菜单：query 非空自动下钻当前类别（态 B）；query 清空退回态 A（保持类别）。
  */
 function applyAtQuery(state: MenuState, query: string): MenuState {
-  if (query.trim() !== '') {
-    if (!state.atDrill) return { ...state, query, atDrill: true, index: 0 }
-    return { ...state, query }
+  if (query.trim() !== "") {
+    if (!state.atDrill) return { ...state, query, atDrill: true, index: 0 };
+    return { ...state, query };
   }
-  return state.atDrill ? { ...state, query, atDrill: false, index: 0 } : { ...state, query }
+  return state.atDrill
+    ? { ...state, query, atDrill: false, index: 0 }
+    : { ...state, query };
 }
 
 /** 打开 @ 菜单：默认「文件」高亮、loading（候选一次性拉取）。 */
-function openAt(_state: MenuState, span: { start: number; end: number }, position: TriggerPosition): MenuState {
+function openAt(
+  _state: MenuState,
+  span: { start: number; end: number },
+  position: TriggerPosition,
+): MenuState {
   return {
     ...initialMenuState,
     open: true,
-    kind: 'at',
+    kind: "at",
     span,
     position,
     index: 0,
     loading: true,
-  }
+  };
 }
 
 /** 打开 / 菜单：单级命令列表（宿主目录 + /model 贡献）；目录快照已就绪则直接用。 */
-function openSlash(state: MenuState, span: { start: number; end: number }, position: TriggerPosition): MenuState {
+function openSlash(
+  state: MenuState,
+  span: { start: number; end: number },
+  position: TriggerPosition,
+): MenuState {
   return {
     ...initialMenuState,
     open: true,
-    kind: 'slash',
+    kind: "slash",
     span,
     position,
     index: 0,
     entries: withModelContribution(state.entries),
     skills: state.skills,
     loading: state.entries.length === 0,
-  }
+  };
 }
 
 /** Enter 分派（见 EnterOutcome）；不改变状态。调用方先 clampIndex 再取高亮行。 */
 export function enterOutcome(state: MenuState): EnterOutcome {
-  if (state.kind === 'at') {
-    if (!state.atDrill) return { kind: 'drill' } // 类别层 Enter 的下钻是状态迁移，见 menuReduce
-    const items = visibleAtItems(state)
-    const item = items[state.index]
-    if (!item) return { kind: 'pass' } // 空/加载中：放行 Enter
-    return state.atCategory === 'files'
-      ? { kind: 'insert-file', candidate: item as AtFileCandidateView }
-      : { kind: 'insert-problem', candidate: item as AtProblemCandidateView }
+  if (state.kind === "at") {
+    if (!state.atDrill) return { kind: "drill" }; // 类别层 Enter 的下钻是状态迁移，见 menuReduce
+    const items = visibleAtItems(state);
+    const item = items[state.index];
+    if (!item) return { kind: "pass" }; // 空/加载中：放行 Enter
+    return state.atCategory === "files"
+      ? { kind: "insert-file", candidate: item as AtFileCandidateView }
+      : { kind: "insert-problem", candidate: item as AtProblemCandidateView };
   }
-  if (state.kind === 'slash') {
+  if (state.kind === "slash") {
     if (state.model) {
-      const group = currentModelGroup(state)
-      const model = group?.models[state.index]
-      if (!group || !model) return { kind: 'pass' }
-      return { kind: 'select-model', provider: group.id, model }
+      const group = currentModelGroup(state);
+      const model = group?.models[state.index];
+      if (!group || !model) return { kind: "pass" };
+      return { kind: "select-model", provider: group.id, model };
     }
     if (state.permission) {
-      const option = permissionOptions(state)[state.index]
-      if (!option) return { kind: 'pass' }
-      return { kind: 'select-permission', preset: option.value }
+      const option = permissionOptions(state)[state.index];
+      if (!option) return { kind: "pass" };
+      return { kind: "select-permission", preset: option.value };
     }
-    if (state.loading) return { kind: 'pass' } // 目录加载中：行未就绪，放行 Enter
-    const row = visibleCommandRows(state)[state.index]
-    if (!row) return { kind: 'pass' }
+    if (state.loading) return { kind: "pass" }; // 目录加载中：行未就绪，放行 Enter
+    const row = visibleCommandRows(state)[state.index];
+    if (!row) return { kind: "pass" };
     // 技能 → insert-skill（落 /name 纯文本走 prompt）；剥离 kind 判别位，outcome 只带领域条目。
-    if (row.kind === 'skill') {
+    if (row.kind === "skill") {
       return {
-        kind: 'insert-skill',
-        entry: { name: row.name, description: row.description, modelInvocable: row.modelInvocable },
-      }
+        kind: "insert-skill",
+        entry: {
+          name: row.name,
+          description: row.description,
+          modelInvocable: row.modelInvocable,
+        },
+      };
     }
-    if (row.name === 'model') return { kind: 'model-drill' }
+    if (row.name === "model") return { kind: "model-drill" };
     // bare /permission → 弹出选择器（对齐 dsh popupSelect decoration）；带参仍走 execute。
-    if (row.name === 'permission') return { kind: 'permission-drill' }
+    if (row.name === "permission") return { kind: "permission-drill" };
     return row.hint !== undefined
-      ? { kind: 'claim', entry: { name: row.name, description: row.description, hint: row.hint } }
-      : { kind: 'execute', entry: { name: row.name, description: row.description } }
+      ? {
+          kind: "claim",
+          entry: {
+            name: row.name,
+            description: row.description,
+            hint: row.hint,
+          },
+        }
+      : {
+          kind: "execute",
+          entry: { name: row.name, description: row.description },
+        };
   }
-  return { kind: 'none' }
+  return { kind: "none" };
 }
 
 /** 状态机入口：返回 { state, outcome }；outcome 供调用方执行（插入/执行/下钻）。 */
-export function menuReduce(state: MenuState, action: MenuAction): { state: MenuState; outcome: EnterOutcome } {
+export function menuReduce(
+  state: MenuState,
+  action: MenuAction,
+): { state: MenuState; outcome: EnterOutcome } {
   switch (action.type) {
-    case 'open':
+    case "open":
       return {
         state:
-          action.kind === 'at'
+          action.kind === "at"
             ? openAt(state, action.span, action.position)
             : openSlash(state, action.span, action.position),
-        outcome: { kind: 'none' },
-      }
-    case 'query': {
-      if (!state.open) return { state, outcome: { kind: 'none' } }
+        outcome: { kind: "none" },
+      };
+    case "query": {
+      if (!state.open) return { state, outcome: { kind: "none" } };
       const next =
-        state.kind === 'at'
+        state.kind === "at"
           ? applyAtQuery(state, action.query)
-          : { ...state, query: action.query, index: 0 }
+          : { ...state, query: action.query, index: 0 };
       return {
-        state: clampIndex({ ...next, span: action.span, position: action.position }),
-        outcome: { kind: 'none' },
-      }
+        state: clampIndex({
+          ...next,
+          span: action.span,
+          position: action.position,
+        }),
+        outcome: { kind: "none" },
+      };
     }
-    case 'candidates': {
-      if (!state.open || state.kind !== 'at') return { state, outcome: { kind: 'none' } }
+    case "candidates": {
+      if (!state.open || state.kind !== "at")
+        return { state, outcome: { kind: "none" } };
       return {
-        state: clampIndex({ ...state, loading: false, failed: false, candidates: action.candidates }),
-        outcome: { kind: 'none' },
-      }
+        state: clampIndex({
+          ...state,
+          loading: false,
+          failed: false,
+          candidates: action.candidates,
+        }),
+        outcome: { kind: "none" },
+      };
     }
-    case 'candidatesFailed': {
-      if (!state.open || state.kind !== 'at') return { state, outcome: { kind: 'none' } }
-      return { state: { ...state, loading: false, failed: true }, outcome: { kind: 'none' } }
+    case "candidatesFailed": {
+      if (!state.open || state.kind !== "at")
+        return { state, outcome: { kind: "none" } };
+      return {
+        state: { ...state, loading: false, failed: true },
+        outcome: { kind: "none" },
+      };
     }
-    case 'commands': {
-      if (!state.open || state.kind !== 'slash') return { state, outcome: { kind: 'none' } }
+    case "commands": {
+      if (!state.open || state.kind !== "slash")
+        return { state, outcome: { kind: "none" } };
       return {
         state: clampIndex({
           ...state,
@@ -374,101 +442,169 @@ export function menuReduce(state: MenuState, action: MenuAction): { state: MenuS
           failed: false,
           entries: withModelContribution(action.entries),
         }),
-        outcome: { kind: 'none' },
-      }
+        outcome: { kind: "none" },
+      };
     }
-    case 'commandsFailed': {
-      if (!state.open || state.kind !== 'slash') return { state, outcome: { kind: 'none' } }
-      return { state: { ...state, loading: false, failed: true }, outcome: { kind: 'none' } }
+    case "commandsFailed": {
+      if (!state.open || state.kind !== "slash")
+        return { state, outcome: { kind: "none" } };
+      return {
+        state: { ...state, loading: false, failed: true },
+        outcome: { kind: "none" },
+      };
     }
-    case 'skills': {
-      if (!state.open || state.kind !== 'slash') return { state, outcome: { kind: 'none' } }
-      return { state: clampIndex({ ...state, skills: action.entries }), outcome: { kind: 'none' } }
+    case "skills": {
+      if (!state.open || state.kind !== "slash")
+        return { state, outcome: { kind: "none" } };
+      return {
+        state: clampIndex({ ...state, skills: action.entries }),
+        outcome: { kind: "none" },
+      };
     }
-    case 'models': {
-      const model = state.model
-      if (!state.open || state.kind !== 'slash' || !model) return { state, outcome: { kind: 'none' } }
+    case "models": {
+      const model = state.model;
+      if (!state.open || state.kind !== "slash" || !model)
+        return { state, outcome: { kind: "none" } };
       const next: MenuState = {
         ...state,
         models: action.groups,
         model: { ...model, loading: false, failed: false, index: 0 },
-      }
-      return { state: clampIndex(next), outcome: { kind: 'none' } }
+      };
+      return { state: clampIndex(next), outcome: { kind: "none" } };
     }
-    case 'modelsFailed': {
-      const model = state.model
-      if (!state.open || state.kind !== 'slash' || !model) return { state, outcome: { kind: 'none' } }
-      return { state: { ...state, model: { ...model, loading: false, failed: true } }, outcome: { kind: 'none' } }
+    case "modelsFailed": {
+      const model = state.model;
+      if (!state.open || state.kind !== "slash" || !model)
+        return { state, outcome: { kind: "none" } };
+      return {
+        state: { ...state, model: { ...model, loading: false, failed: true } },
+        outcome: { kind: "none" },
+      };
     }
-    case 'permissions': {
-      const permission = state.permission
-      if (!state.open || state.kind !== 'slash' || !permission) return { state, outcome: { kind: 'none' } }
+    case "permissions": {
+      const permission = state.permission;
+      if (!state.open || state.kind !== "slash" || !permission)
+        return { state, outcome: { kind: "none" } };
       const next: MenuState = {
         ...state,
         permissions: action.value,
         permission: { ...permission, loading: false, failed: false, index: 0 },
-      }
-      return { state: clampIndex(next), outcome: { kind: 'none' } }
+      };
+      return { state: clampIndex(next), outcome: { kind: "none" } };
     }
-    case 'permissionsFailed': {
-      const permission = state.permission
-      if (!state.open || state.kind !== 'slash' || !permission) return { state, outcome: { kind: 'none' } }
-      return { state: { ...state, permission: { ...permission, loading: false, failed: true } }, outcome: { kind: 'none' } }
+    case "permissionsFailed": {
+      const permission = state.permission;
+      if (!state.open || state.kind !== "slash" || !permission)
+        return { state, outcome: { kind: "none" } };
+      return {
+        state: {
+          ...state,
+          permission: { ...permission, loading: false, failed: true },
+        },
+        outcome: { kind: "none" },
+      };
     }
-    case 'move': {
-      if (!state.open) return { state, outcome: { kind: 'none' } }
-      const count = rowCount(state)
-      if (count === 0) return { state, outcome: { kind: 'none' } }
-      const index = (state.index + action.dir + count) % count
-      return { state: { ...state, index }, outcome: { kind: 'none' } }
+    case "move": {
+      if (!state.open) return { state, outcome: { kind: "none" } };
+      const count = rowCount(state);
+      if (count === 0) return { state, outcome: { kind: "none" } };
+      const index = (state.index + action.dir + count) % count;
+      return { state: { ...state, index }, outcome: { kind: "none" } };
     }
-    case 'enter': {
-      if (!state.open) return { state, outcome: { kind: 'none' } }
+    case "enter": {
+      if (!state.open) return { state, outcome: { kind: "none" } };
       // @ 类别层 Enter → 下钻态 B，类别跟随高亮行。
-      if (state.kind === 'at' && !state.atDrill) {
-        const category = CATEGORY_ROWS[state.index] ?? state.atCategory
+      if (state.kind === "at" && !state.atDrill) {
+        const category = CATEGORY_ROWS[state.index] ?? state.atCategory;
         return {
-          state: clampIndex({ ...state, atDrill: true, atCategory: category, index: 0 }),
-          outcome: { kind: 'drill' },
-        }
+          state: clampIndex({
+            ...state,
+            atDrill: true,
+            atCategory: category,
+            index: 0,
+          }),
+          outcome: { kind: "drill" },
+        };
       }
-      const outcome = enterOutcome(state)
+      const outcome = enterOutcome(state);
       switch (outcome.kind) {
         // 无可选行（空/加载中）：菜单保持打开，Enter 放行给调用方（回落发送）。
-        case 'pass':
-        case 'none':
-        case 'drill':
-          return { state, outcome }
-        case 'model-drill':
+        case "pass":
+        case "none":
+        case "drill":
+          return { state, outcome };
+        case "model-drill":
           return {
-            state: { ...state, model: { group: 0, index: 0, loading: true, failed: false } },
+            state: {
+              ...state,
+              model: { group: 0, index: 0, loading: true, failed: false },
+            },
             outcome,
-          }
-        case 'permission-drill':
+          };
+        case "permission-drill":
           return {
-            state: { ...state, permission: { index: 0, loading: true, failed: false } },
+            state: {
+              ...state,
+              permission: { index: 0, loading: true, failed: false },
+            },
             outcome,
-          }
+          };
         // 插入引用 / claim / 执行 / 选中模型 / 选中预设：菜单关闭，outcome 交由调用方执行。
         default:
-          return { state: { ...initialMenuState, entries: state.entries, skills: state.skills, models: state.models, permissions: state.permissions }, outcome }
+          return {
+            state: {
+              ...initialMenuState,
+              entries: state.entries,
+              skills: state.skills,
+              models: state.models,
+              permissions: state.permissions,
+            },
+            outcome,
+          };
       }
     }
-    case 'escape': {
-      if (!state.open) return { state, outcome: { kind: 'none' } }
+    case "escape": {
+      if (!state.open) return { state, outcome: { kind: "none" } };
       // /model、/permission 态 B → 返回命令列表；@ 态 B → 返回类别层；其余关闭菜单。
-      if (state.kind === 'slash' && state.model) {
-        return { state: { ...state, model: null, index: 0 }, outcome: { kind: 'none' } }
+      if (state.kind === "slash" && state.model) {
+        return {
+          state: { ...state, model: null, index: 0 },
+          outcome: { kind: "none" },
+        };
       }
-      if (state.kind === 'slash' && state.permission) {
-        return { state: { ...state, permission: null, index: 0 }, outcome: { kind: 'none' } }
+      if (state.kind === "slash" && state.permission) {
+        return {
+          state: { ...state, permission: null, index: 0 },
+          outcome: { kind: "none" },
+        };
       }
-      if (state.kind === 'at' && state.atDrill) {
-        return { state: { ...state, atDrill: false, index: 0 }, outcome: { kind: 'none' } }
+      if (state.kind === "at" && state.atDrill) {
+        return {
+          state: { ...state, atDrill: false, index: 0 },
+          outcome: { kind: "none" },
+        };
       }
-      return { state: { ...initialMenuState, entries: state.entries, skills: state.skills, models: state.models, permissions: state.permissions }, outcome: { kind: 'none' } }
+      return {
+        state: {
+          ...initialMenuState,
+          entries: state.entries,
+          skills: state.skills,
+          models: state.models,
+          permissions: state.permissions,
+        },
+        outcome: { kind: "none" },
+      };
     }
-    case 'close':
-      return { state: { ...initialMenuState, entries: state.entries, skills: state.skills, models: state.models, permissions: state.permissions }, outcome: { kind: 'none' } }
+    case "close":
+      return {
+        state: {
+          ...initialMenuState,
+          entries: state.entries,
+          skills: state.skills,
+          models: state.models,
+          permissions: state.permissions,
+        },
+        outcome: { kind: "none" },
+      };
   }
 }

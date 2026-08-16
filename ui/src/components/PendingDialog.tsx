@@ -6,7 +6,7 @@
  *   - plan-review：计划决策卡 —— 状态条 + markdown 正文 + 「批准」「拒绝」「讨论」
  *     （讨论 = 发 cancelled 错误，即"先别定，回去继续聊"）；
  *   - question：通用问询卡 —— 标题/详情 + 选项列表（单选序号 / 多选复选框）+
- *     自定义文本行 + 提交/取消。
+ *     自定义文本行（单选与自定义互斥）+ 跳过 + 提交前必答校验。
  * 单槽位最旧优先（扩展侧已按插入序排列），多余 pending 显示排队计数。
  * 键盘：审批 Enter=允许一次 Esc=拒绝；plan Enter=批准 Esc=讨论；
  * 问询 ↑/↓ 或 Tab 遍历、Enter 提交、Esc=取消、多选空格切换。
@@ -231,6 +231,13 @@ function PlanReviewCardView({
   )
 }
 
+/** 单题草稿：选中项 + 自定义文本 + 显式跳过标记。 */
+interface QuestionDraft {
+  selected: string[]
+  custom: string
+  skipped: boolean
+}
+
 /** 单个问询问题：标题/详情 + 选项列表 + 自定义文本行。 */
 function QuestionEditor({
   q,
@@ -244,8 +251,8 @@ function QuestionEditor({
   q: PendingQuestionView
   index: number
   count: number
-  draft: { selected: string[]; custom: string }
-  onChange: (draft: { selected: string[]; custom: string }) => void
+  draft: QuestionDraft
+  onChange: (draft: QuestionDraft) => void
   focused: boolean
   onFocus: () => void
 }) {
@@ -254,9 +261,10 @@ function QuestionEditor({
       const selected = draft.selected.includes(label)
         ? draft.selected.filter((l) => l !== label)
         : [...draft.selected, label]
-      onChange({ ...draft, selected })
+      onChange({ ...draft, selected, skipped: false })
     } else {
-      onChange({ ...draft, selected: [label] })
+      // 单选互斥：选选项即清空自定义文本。
+      onChange({ selected: [label], custom: '', skipped: false })
     }
   }
   return (
@@ -327,7 +335,15 @@ function QuestionEditor({
             // 文本行内方向键只移动光标，不触发卡片翻页；Enter/Esc 仍上浮（提交/取消）。
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') e.stopPropagation()
           }}
-          onChange={(e) => onChange({ ...draft, custom: e.target.value })}
+          onChange={(e) =>
+            onChange({
+              ...draft,
+              // 单选互斥：输自定义文本即清空已选项；多选保留已勾选。
+              selected: q.multiSelect === true ? draft.selected : [],
+              custom: e.target.value,
+              skipped: false,
+            })
+          }
           className="w-full bg-transparent text-sm outline-none placeholder:text-description/60"
         />
       </div>
@@ -335,7 +351,7 @@ function QuestionEditor({
   )
 }
 
-/** 通用问询卡：多问题分页 + 单/多选 + 自定义文本 + 提交/取消。 */
+/** 通用问询卡：多问题分页 + 单/多选（与自定义文本互斥）+ 跳过 + 提交前必答校验。 */
 function QuestionCardView({
   item,
   feedback,
@@ -350,9 +366,10 @@ function QuestionCardView({
   const [page, setPage] = useState(0)
   const [busy, setBusy] = useState(false)
   useResetBusyOnError(busy, setBusy, feedback)
-  const [drafts, setDrafts] = useState<{ selected: string[]; custom: string }[]>(() =>
-    item.items.map(() => ({ selected: [], custom: '' })),
+  const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
+    item.items.map(() => ({ selected: [], custom: '', skipped: false })),
   )
+  const [validation, setValidation] = useState<string | null>(null)
   const [active, setActive] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -361,23 +378,63 @@ function QuestionCardView({
   const count = item.items.length
   const focused = active === page
 
-  const setDraft = (draft: { selected: string[]; custom: string }): void => {
+  const setDraft = (draft: QuestionDraft): void => {
     setDrafts((prev) => prev.map((d, i) => (i === page ? draft : d)))
+    setValidation(null)
   }
 
-  const submit = (): void => {
+  /** 跳页（翻页 / 键盘 / 跳过后前进）并清掉本地校验提示。 */
+  const goTo = (next: number): void => {
+    setPage(next)
+    setActive(next)
+    setValidation(null)
+  }
+
+  const answered = (d: QuestionDraft): boolean => d.selected.length > 0 || d.custom.trim() !== ''
+
+  const completed = (d: QuestionDraft): boolean => answered(d) || d.skipped
+
+  /** 提交整批答案：必答校验（缺答跳到第一处并报错）；跳过编码为 selected:[]。 */
+  const submitDrafts = (values: QuestionDraft[]): void => {
+    const missing = values.findIndex((d) => !completed(d))
+    if (missing >= 0) {
+      setPage(missing)
+      setActive(missing)
+      setValidation('还有问题未回答，请回答或跳过后再提交。')
+      return
+    }
+    setValidation(null)
     setBusy(true)
     onAnswer(item.key, {
       kind: 'question',
       answers: item.items.map((question, i) => {
-        const draft = drafts[i] ?? { selected: [], custom: '' }
+        const draft: QuestionDraft = values[i] ?? { selected: [], custom: '', skipped: false }
+        if (draft.skipped) return { id: question.id, selected: [] }
+        const custom = draft.custom.trim()
         return {
           id: question.id,
-          selected: draft.selected,
-          ...(draft.custom !== '' ? { custom: draft.custom } : {}),
+          // 单选有自定义文本时不再携带选项；多选 / 选项答案保留 selected。
+          selected: custom === '' || question.multiSelect === true ? draft.selected : [],
+          ...(custom === '' ? {} : { custom }),
         }
       }),
     })
+  }
+
+  const submit = (): void => submitDrafts(drafts)
+
+  /** 跳过当前题：清空并标记 skipped；非末题前进，末题即提交。 */
+  const skip = (): void => {
+    const nextDrafts = drafts.map((d, i) =>
+      i === page ? { selected: [], custom: '', skipped: true } : d,
+    )
+    setDrafts(nextDrafts)
+    setValidation(null)
+    if (page < count - 1) {
+      goTo(page + 1)
+      return
+    }
+    submitDrafts(nextDrafts)
   }
 
   // 键盘：↑/↓ 或 Tab 在问题间移动、Enter 提交、Esc 取消（v1 不在此做选项内焦点环）。
@@ -396,8 +453,7 @@ function QuestionCardView({
       const dir = e.key === 'ArrowDown' || e.key === 'Tab' ? 1 : -1
       if (count > 1) {
         e.preventDefault()
-        setPage((p) => (p + dir + count) % count)
-        setActive((p) => (p + dir + count) % count)
+        goTo((page + dir + count) % count)
       }
       return
     }
@@ -416,31 +472,28 @@ function QuestionCardView({
         tone="question"
         header={`问询${count > 1 ? `（${page + 1}/${count}）` : ''}`}
         ariaLabel={q.question}
-        feedback={feedback}
+        feedback={validation ?? feedback}
         actions={
           <>
             <ActionButton variant="ghost" disabled={busy} onClick={() => onCancel(item.key)}>
               取消
+            </ActionButton>
+            <ActionButton variant="outline" disabled={busy} onClick={skip}>
+              跳过
             </ActionButton>
             {count > 1 ? (
               <>
                 <ActionButton
                   variant="outline"
                   disabled={page === 0}
-                  onClick={() => {
-                    setPage((p) => p - 1)
-                    setActive((p) => p - 1)
-                  }}
+                  onClick={() => goTo(page - 1)}
                 >
                   <IconChevronUpOutline14 size={12} />
                 </ActionButton>
                 <ActionButton
                   variant="outline"
                   disabled={page === count - 1}
-                  onClick={() => {
-                    setPage((p) => p + 1)
-                    setActive((p) => p + 1)
-                  }}
+                  onClick={() => goTo(page + 1)}
                 >
                   <IconChevronDownOutline14 size={12} />
                 </ActionButton>

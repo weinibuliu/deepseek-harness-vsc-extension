@@ -20,7 +20,7 @@ node_modules
 .idea
 
 CONTEXT.md
-AGENT.md
+AGENTS.md
 docs
 
 deepseek-harness

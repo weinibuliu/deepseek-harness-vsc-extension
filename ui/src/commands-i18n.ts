@@ -4,19 +4,19 @@
  * （未来 dsh 版本新增）回退 wire 原文，契约跟随。
  */
 
-import type { CommandDescriptorView } from '../../src/shared/protocol.ts'
+import type { CommandDescriptorView } from "../../src/shared/protocol.ts";
 
 const COMMAND_DESCRIPTIONS_ZH: Record<string, string> = {
-  plan: '进入或离开计划模式',
-  goal: '设置或查看长期任务的目标',
-  compact: '压缩较早的对话历史',
-  export: '下载本会话日志为 ZIP 存档',
-  feedback: '记录关于本会话的反馈',
-  permission: '切换权限预设（沙箱模式与审批策略）',
-  model: '选择当前会话的模型（provider 分组 → 模型）',
-}
+  plan: "进入或离开计划模式",
+  goal: "设置或查看长期任务的目标",
+  compact: "压缩较早的对话历史",
+  export: "下载本会话日志为 ZIP 存档",
+  feedback: "记录关于本会话的反馈",
+  permission: "切换权限预设（沙箱模式与审批策略）",
+  model: "选择当前会话的模型（provider 分组 → 模型）",
+};
 
 /** 取命令的中文描述；无对应翻译时回退 wire 原文。 */
 export function commandDescription(entry: CommandDescriptorView): string {
-  return COMMAND_DESCRIPTIONS_ZH[entry.name] ?? entry.description
+  return COMMAND_DESCRIPTIONS_ZH[entry.name] ?? entry.description;
 }

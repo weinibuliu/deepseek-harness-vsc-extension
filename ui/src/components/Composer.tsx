@@ -3,12 +3,15 @@ import { IconCheckOutline16, IconSendOutline16, IconStopFill16 } from '../../ico
 import type {
   AtCandidatesView,
   AtRefPayload,
+  AgentPresetSelectView,
   CommandDescriptorView,
   ComposerSubmitGesture,
   PermissionSelectView,
   SessionModelsView,
+  SessionSummary,
   SkillsSnapshot,
   TodoItem,
+  UsageStatsView,
 } from '../../../src/shared/protocol.ts'
 import { detectTrigger, type TriggerGuardTier } from '../../../src/shared/trigger.ts'
 import {
@@ -27,6 +30,8 @@ import { permissionLabel } from '../permission.ts'
 import { TodoStrip } from './TodoStrip.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
+import { UsageChip } from './UsageChip.tsx'
+import { AgentPresetSelect } from './AgentPresetSelect.tsx'
 
 interface ComposerProps {
   text: string
@@ -62,11 +67,20 @@ interface ComposerProps {
   onPermissionSelect: (preset: string) => void
   /** /permission 弹出层打开 → 解析会话并加载投影（空/未绑定会话可用）。 */
   onPermissionOpen: () => void
+  /** Agent Preset roster + stage state for this composer slot. */
+  agentPresets: AgentPresetSelectView | null
+  /** Bound Session summary; absent for the unbound slot or while its row loads. */
+  agentPresetSession: SessionSummary | undefined
+  agentPresetBound: boolean
+  onAgentPresetOpen: () => void
+  onAgentPresetSelect: (id: string) => void
   /** 命令准入即时反馈（composer 内提示）。 */
   notices: { level: 'info' | 'error'; text: string; id: number }[]
   onNoticeDismissed: (id: number) => void
   /** M4b: 当前会话的 todo 计划条（null/[] = 不渲染）。 */
   todos: TodoItem[] | null
+  /** 当前会话的用量统计（token/时间/context 四投影组合；null = 全缺席 → chip 隐藏）。 */
+  stats: UsageStatsView | null
   running: boolean
   submitting: boolean
   modelSubmitting: boolean
@@ -118,9 +132,15 @@ export function Composer({
   permissions,
   onPermissionSelect,
   onPermissionOpen,
+  agentPresets,
+  agentPresetSession,
+  agentPresetBound,
+  onAgentPresetOpen,
+  onAgentPresetSelect,
   notices,
   onNoticeDismissed,
   todos,
+  stats,
   running,
   submitting,
   modelSubmitting,
@@ -148,8 +168,9 @@ export function Composer({
   // 会话运行锁放宽：运行期间仍允许输入编辑（打字 + @ 引用），但发送与 / 命令、模型、权限
   // 等会话动作仍冻结。故 inputDisabled 不再含 running；running 改在 guard 层压制 / 触发。
   const inputDisabled = disabled || submitting || routableBlocked
+  const presetSubmitting = agentPresets?.busy === true
   // running 期间 / 触发被压制（只保留 @ 引用），对齐「编辑允许、命令冻结」。
-  const guardTier: TriggerGuardTier = inputDisabled ? 'frozen' : (running || claim) ? 'claimed' : 'plain'
+  const guardTier: TriggerGuardTier = inputDisabled ? 'frozen' : (running || claim || presetSubmitting) ? 'claimed' : 'plain'
 
   useEffect(() => {
     menuOpenRef.current = menu.open
@@ -219,6 +240,7 @@ export function Composer({
   }
 
   const send = (gesture: ComposerSubmitGesture): void => {
+    if (presetSubmitting) return
     const value = text.trim()
     if (!value) return
     const decision = adjudicate(value)
@@ -485,23 +507,25 @@ export function Composer({
       }
       case 'execute': {
         // 执行触发 token 本身（inline 前缀保留，对齐 consume-token 语义）。
-        if (running) break // 运行锁：命令执行冻结
+        if (running || presetSubmitting) break // 运行/模式写入锁：命令执行冻结
         const span = menu.span ?? { start: 0, end: text.length }
         const line = text.slice(span.start, span.end).trim()
         if (line) onCommandExecute(line)
         break
       }
       case 'model-drill':
+        if (presetSubmitting) break
         onModelOpen()
         break
       case 'select-model':
-        if (!running) onModelSelect(outcome.provider, outcome.model.id)
+        if (!running && !presetSubmitting) onModelSelect(outcome.provider, outcome.model.id)
         break
       case 'permission-drill':
+        if (presetSubmitting) break
         onPermissionOpen() // 状态迁移已在 menuReduce 完成；这里按需重拉投影（空/未绑定会话可用）。
         break
       case 'select-permission':
-        if (!running) onPermissionSelect(outcome.preset)
+        if (!running && !presetSubmitting) onPermissionSelect(outcome.preset)
         break
     }
   }
@@ -556,7 +580,7 @@ export function Composer({
       return
     }
     // 空格 claim（对齐 dsh matchSpace）：行首 `/name` 后按空格 → `/name ` + hint。
-    if (e.key === ' ' && !e.shiftKey && !menu.open && !claim && !running && commands?.available === true) {
+    if (e.key === ' ' && !e.shiftKey && !menu.open && !claim && !running && !presetSubmitting && commands?.available === true) {
       const caret = e.currentTarget.selectionStart ?? text.length
       const leading = text.slice(0, caret)
       const ws = leading.search(/\s/)
@@ -761,7 +785,7 @@ export function Composer({
               type="button"
               className="input-icon-button flex size-6 items-center justify-center rounded-xs text-icon-foreground"
               title="发送"
-              disabled={inputDisabled || serviceDisabled || modelSubmitting || text.trim().length === 0}
+              disabled={inputDisabled || serviceDisabled || modelSubmitting || presetSubmitting || text.trim().length === 0}
               onClick={() => send('enter')}
             >
               <IconSendOutline16 size={15} />
@@ -769,19 +793,28 @@ export function Composer({
           )}
         </div>
       </div>
-      {/* 输入框下方的席位（右对齐）：权限席位 + 模型席位并列。running/未就绪时禁用，
+      {/* 输入框下方的席位（右对齐）：模式、权限、模型席位并列。running/未就绪时禁用，
           routable=false 不锁模型席位（作为恢复入口）。 */}
       <div className="flex flex-wrap items-center justify-end gap-2 px-3.5 pb-1">
+        <UsageChip stats={stats} />
+        <AgentPresetSelect
+          value={agentPresets}
+          session={agentPresetSession}
+          bound={agentPresetBound}
+          onOpen={onAgentPresetOpen}
+          onSelect={onAgentPresetSelect}
+          disabled={disabled || running || submitting || modelSubmitting || serviceDisabled}
+        />
         <PermissionSelect
           value={permissions}
           onSelect={onPermissionSelect}
-          disabled={disabled || running || submitting || modelSubmitting || serviceDisabled}
+          disabled={disabled || running || submitting || modelSubmitting || presetSubmitting || serviceDisabled}
         />
         <ModelSelect
           models={models}
           onOpen={onModelOpen}
           onSelect={onModelSelect}
-          disabled={disabled || running || submitting || modelSubmitting || serviceDisabled}
+          disabled={disabled || running || submitting || modelSubmitting || presetSubmitting || serviceDisabled}
         />
       </div>
       {/* 命令准入即时反馈（不进对话流）。 */}

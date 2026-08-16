@@ -1,6 +1,7 @@
 .claude
 .codex
 CONTEXT.md
+AGENTS.md
 
 .idea
 .vscode/settings.json

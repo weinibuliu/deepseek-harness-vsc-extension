@@ -2,7 +2,7 @@
   "name": "dsh-vsc",
   "displayName": "DeepSeek Harness",
   "description": "DeepSeek Harness(dsh) for VS Code",
-  "version": "0.1.5",
+  "version": "0.1.12",
   "publisher": "weinibuliu",
   "repository": {
     "type": "git",
@@ -30,7 +30,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "weinibuliu-dsh-vsc",
           "title": "DeepSeek Harness",
@@ -49,14 +49,33 @@
         }
       ]
     },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "weinibuliu.dsh-vsc.focus.from-editor",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "when": "false",
+          "command": "weinibuliu.dsh-vsc.focus.from-editor"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "weinibuliu.dsh-vsc.focus",
         "title": "dsh: Open Chat"
       },
       {
+        "command": "weinibuliu.dsh-vsc.focus.from-editor",
+        "title": "Open Deepseek Harness",
+        "icon": "ui/favicon.svg"
+      },
+      {
         "command": "weinibuliu.dsh-vsc.openInBrowser",
-        "title": "dsh: Open Web UI in Browser"
+        "title": "dsh: Open WebUI in Browser"
       },
       {
         "command": "weinibuliu.dsh-vsc.newSession",
@@ -76,22 +95,51 @@
             "null"
           ],
           "default": null,
-          "description": "Explicit path to the dsh executable. Empty: discover via PATH, npm global prefix, then npx --no-install."
+          "scope": "machine",
+          "description": "Explicit path to the dsh executable used by the global managed runtime. Empty: discover via PATH, npm global prefix, then npx --no-install."
         },
         "weinibuliu.dsh-vsc.minDshVersion": {
           "type": "string",
           "default": "0.1.0-rc.6",
-          "description": "Minimum accepted dsh version (semver, prerelease-aware)."
+          "scope": "machine",
+          "description": "Reserved compatibility floor. Versions are currently recorded but not rejected.",
+          "deprecationMessage": "Temporarily inactive until DSH exposes a trustworthy compatibility version."
+        },
+        "weinibuliu.dsh-vsc.externalUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "scope": "machine",
+          "description": "External DSH base URL. When set, the extension only connects/disconnects and never manages that process."
+        },
+        "weinibuliu.dsh-vsc.discoveryPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 3080,
+          "scope": "machine",
+          "description": "Loopback port probed first for an existing DSH instance."
+        },
+        "weinibuliu.dsh-vsc.managedPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 30800,
+          "scope": "machine",
+          "description": "Fixed loopback port used by the cross-window managed DSH runtime. A non-DSH listener is reported as a conflict."
         },
         "weinibuliu.dsh-vsc.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Spawn the dsh web server when a workspace window opens."
+          "scope": "machine",
+          "description": "Resolve and connect to the global DSH runtime when a workspace window opens."
         }
       }
     }
   },
-  "packageManager": "pnpm@11.10.0",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "pnpm run build:webview && node esbuild.mjs",
     "build:webview": "vite build",

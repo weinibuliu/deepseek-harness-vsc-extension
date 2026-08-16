@@ -7,11 +7,11 @@
 
 <!--  -->
 
-The Project is **Visual Studio Code Extension** provides additional features for Deepseek Harness.
+The Project is **Visual Studio Code Extension** provides additional features for DeepSeek Harness.
 
-本项目是一个为 Deepseek Harness 提供额外能力的 **Visual Studio Code 拓展**。
+本项目是一个为 DeepSeek Harness 提供额外能力的 **Visual Studio Code 拓展**。
 
-![GitHub License](https://img.shields.io/github/license/weinibuliu/deepseek-harness-vsc-extension) ![GitHub commit activity](https://img.shields.io/github/commit-activity/w/weinibuliu/deepseek-harness-vsc-extension)
+![Installs](https://vsmarketplacebadges.dev/installs-short/weinibuliu.dsh-vsc.svg) ![GitHub License](https://img.shields.io/github/license/weinibuliu/deepseek-harness-vsc-extension) ![GitHub commit activity](https://img.shields.io/github/commit-activity/w/weinibuliu/deepseek-harness-vsc-extension)
 
 ## Features
 
@@ -19,6 +19,7 @@ The Project is **Visual Studio Code Extension** provides additional features for
 - Native File Picker 原生文件选择器
 - Feeling of current focus 当前焦点感知
 - Problems from editor 编辑器问题
+- Agent Preset selector for blank sessions 空白会话模式选择器
 
 ## Install
 
@@ -34,9 +35,9 @@ The Project is **Visual Studio Code Extension** provides additional features for
 
 ## Start
 
-Extension will try to find `dsh` in PATH. so, you should run:
+Extension will try to find `dsh`. so, you install `dsh`:
 
-本拓展将会尝试从 PATH 环境变量中寻找可用的 `dsh` 。因此，你应该通过以下方式安装 dsh 。
+本拓展将会尝试寻找可用的 `dsh` 。因此，请自行安装 dsh 。
 
 ```bash
 npm install -g @deepseek-ai/dsh
@@ -59,8 +60,9 @@ We are trying to make this project better, including following the dsh and addin
 
 ### Following
 
-- [ ] Display usage 显示用量
-- [ ] Context usage 显示上下文
+- [x] Display usage 显示用量
+- [x] Context usage 显示上下文
+- [x] Agent preset Agent 预设 (PTC 模式等)
 - [ ] Fork session fork 会话
 - [ ] Changes list 产物列表
 - [ ] SubAgents management SubAgent 管理

@@ -7,14 +7,14 @@
  */
 
 export const STATUS_COPY: Record<string, string> = {
-  discovering: 'DeepSeek Harness 服务检测中',
-  starting: 'DeepSeek Harness 服务启动中',
-  ready: 'DeepSeek Harness 服务已就绪',
-  reconnecting: 'DeepSeek Harness 服务重连中',
-  stopped: 'DeepSeek Harness 服务已停止',
-  error: 'DeepSeek Harness 服务出错',
-}
+  discovering: "DeepSeek Harness 服务检测中",
+  starting: "DeepSeek Harness 服务启动中",
+  ready: "DeepSeek Harness 服务已就绪",
+  reconnecting: "DeepSeek Harness 服务重连中",
+  stopped: "DeepSeek Harness 服务已停止",
+  error: "DeepSeek Harness 服务出错",
+};
 
 export function statusCopy(status: string): string {
-  return STATUS_COPY[status] ?? status
+  return STATUS_COPY[status] ?? status;
 }

@@ -8,42 +8,43 @@
 
 /** guard 层级（对齐 dsh input-trigger types.ts）：plain 两者都活；claimed 只活 `@`；
  *  frozen（composer 禁用）全压。 */
-export type TriggerGuardTier = 'plain' | 'claimed' | 'frozen'
+export type TriggerGuardTier = "plain" | "claimed" | "frozen";
 
 export interface TriggerGuard {
-  tier: TriggerGuardTier
+  tier: TriggerGuardTier;
 }
 
-export type TriggerChar = '/' | '@'
+export type TriggerChar = "/" | "@";
 
 /** 触发 token 位置（对齐 dsh）：leading = draft 去掉前导空白后从该 token 开始。 */
-export type TriggerPosition = 'leading' | 'inline'
+export type TriggerPosition = "leading" | "inline";
 
 /** 一次触发命中：触发字符、触发到光标的 query（菜单过滤用）、位置与替换 span。 */
 export interface TriggerHit {
-  trigger: TriggerChar
-  query: string
-  position: TriggerPosition
-  span: { start: number; end: number }
+  trigger: TriggerChar;
+  query: string;
+  position: TriggerPosition;
+  span: { start: number; end: number };
 }
 
-const WORD_CHAR = /[\p{L}\p{N}_]/u
-const WHITESPACE = /\s/u
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+const WHITESPACE = /\s/u;
 
 /**
  * 词边界规则：触发字符只在行首、空白后或标点后开火；`/` 的两条 URL 豁免——
  * `:` 后（scheme 分隔符，`https:/…`）与直接跟在 `/` 后（`//` 的第二个斜杠）。
  */
 function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
-  if (index === 0) return true
-  const prev = draft.charAt(index - 1)
-  if (WHITESPACE.test(prev)) return true
-  if (WORD_CHAR.test(prev)) return false
-  if (char === '/') {
-    if (prev === '/') return false
-    if (prev === ':' && index >= 2 && !WHITESPACE.test(draft.charAt(index - 2))) return false
+  if (index === 0) return true;
+  const prev = draft.charAt(index - 1);
+  if (WHITESPACE.test(prev)) return true;
+  if (WORD_CHAR.test(prev)) return false;
+  if (char === "/") {
+    if (prev === "/") return false;
+    if (prev === ":" && index >= 2 && !WHITESPACE.test(draft.charAt(index - 2)))
+      return false;
   }
-  return true
+  return true;
 }
 
 /**
@@ -56,21 +57,25 @@ function boundaryOk(draft: string, index: number, char: TriggerChar): boolean {
  * @param guard - 由输入阶段推导的可用性层级。
  * @returns 命中（含 query 与替换 span）或 null。
  */
-export function detectTrigger(draft: string, caret: number, guard: TriggerGuard): TriggerHit | null {
-  if (guard.tier === 'frozen') return null
-  const pos = Math.max(0, Math.min(caret, draft.length))
+export function detectTrigger(
+  draft: string,
+  caret: number,
+  guard: TriggerGuard,
+): TriggerHit | null {
+  if (guard.tier === "frozen") return null;
+  const pos = Math.max(0, Math.min(caret, draft.length));
   for (let i = pos - 1; i >= 0; i--) {
-    const ch = draft.charAt(i)
-    if (WHITESPACE.test(ch)) return null
-    if (ch !== '/' && ch !== '@') continue
-    if (guard.tier === 'claimed' && ch === '/') continue
-    if (!boundaryOk(draft, i, ch as TriggerChar)) continue
+    const ch = draft.charAt(i);
+    if (WHITESPACE.test(ch)) return null;
+    if (ch !== "/" && ch !== "@") continue;
+    if (guard.tier === "claimed" && ch === "/") continue;
+    if (!boundaryOk(draft, i, ch as TriggerChar)) continue;
     return {
       trigger: ch as TriggerChar,
       query: draft.slice(i + 1, pos),
-      position: draft.search(/\S/u) === i ? 'leading' : 'inline',
+      position: draft.search(/\S/u) === i ? "leading" : "inline",
       span: { start: i, end: pos },
-    }
+    };
   }
-  return null
+  return null;
 }

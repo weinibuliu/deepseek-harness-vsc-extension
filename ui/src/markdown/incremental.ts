@@ -14,34 +14,34 @@
  * renders literally until the settled full parse self-heals it.
  */
 
-import type { Root, RootContent } from 'mdast'
+import type { Root, RootContent } from "mdast";
 
 /**
  * Trailing blocks kept unstable. Appended text reshapes at most the last
  * block; the second-to-last is retained as safety margin.
  */
-const UNSTABLE_TAIL_BLOCKS = 2
+const UNSTABLE_TAIL_BLOCKS = 2;
 
 /** A top-level mdast block plus a render key that is stable across chunks. */
 export interface PositionedBlock {
   /** The parsed block. Positions inside it are relative to its parse slice. */
-  readonly node: RootContent
+  readonly node: RootContent;
   /**
    * The block's start offset in the full source text. Stable from the frame
    * a block first appears through freezing, so React reconciles rather than
    * remounts when a block crosses the freeze boundary.
    */
-  readonly key: number
+  readonly key: number;
 }
 
 /** One {@link IncrementalMarkdownParser.update} result. */
 export interface IncrementalBlocks {
   /** Blocks that can no longer change; grows monotonically per generation. */
-  readonly frozen: readonly PositionedBlock[]
+  readonly frozen: readonly PositionedBlock[];
   /** The re-parsed unstable tail. */
-  readonly tail: readonly PositionedBlock[]
+  readonly tail: readonly PositionedBlock[];
   /** Bumped whenever non-append input discards the frozen prefix. */
-  readonly generation: number
+  readonly generation: number;
 }
 
 /**
@@ -50,17 +50,17 @@ export interface IncrementalBlocks {
  * tail, which is the only place the fallback can occur.
  */
 function blockKey(node: RootContent, base: number, index: number): number {
-  const offset = node.position?.start.offset
-  return offset === undefined ? -(index + 1) : base + offset
+  const offset = node.position?.start.offset;
+  return offset === undefined ? -(index + 1) : base + offset;
 }
 
 /** Append-only incremental parser over a caller-supplied grammar. */
 export class IncrementalMarkdownParser {
-  private prevText = ''
-  private tailStart = 0
-  private frozen: PositionedBlock[] = []
-  private generation = 0
-  private cached: IncrementalBlocks | null = null
+  private prevText = "";
+  private tailStart = 0;
+  private frozen: PositionedBlock[] = [];
+  private generation = 0;
+  private cached: IncrementalBlocks | null = null;
 
   /** @param parse - Grammar shared with whatever renders the blocks, so boundaries agree. */
   constructor(private readonly parse: (text: string) => Root) {}
@@ -73,35 +73,42 @@ export class IncrementalMarkdownParser {
    * @returns Frozen and tail blocks with stream-stable render keys.
    */
   update(text: string): IncrementalBlocks {
-    if (this.cached !== null && text === this.prevText) return this.cached
+    if (this.cached !== null && text === this.prevText) return this.cached;
     if (!text.startsWith(this.prevText)) {
-      this.prevText = ''
-      this.tailStart = 0
-      this.frozen = []
-      this.generation += 1
+      this.prevText = "";
+      this.tailStart = 0;
+      this.frozen = [];
+      this.generation += 1;
     }
-    this.prevText = text
-    const base = this.tailStart
-    const blocks = this.parse(text.slice(base)).children
-    let firstUnstable = Math.max(0, blocks.length - UNSTABLE_TAIL_BLOCKS)
+    this.prevText = text;
+    const base = this.tailStart;
+    const blocks = this.parse(text.slice(base)).children;
+    let firstUnstable = Math.max(0, blocks.length - UNSTABLE_TAIL_BLOCKS);
     if (firstUnstable > 0) {
-      const cutEnd = blocks[firstUnstable - 1]?.position?.end.offset
+      const cutEnd = blocks[firstUnstable - 1]?.position?.end.offset;
       if (cutEnd === undefined) {
         // A grammar that omits positions leaves nothing to cut at; keep the
         // whole parse in the tail rather than guessing a boundary.
-        firstUnstable = 0
+        firstUnstable = 0;
       } else {
         for (const node of blocks.slice(0, firstUnstable)) {
-          this.frozen.push({ node, key: blockKey(node, base, this.frozen.length) })
+          this.frozen.push({
+            node,
+            key: blockKey(node, base, this.frozen.length),
+          });
         }
-        this.tailStart = base + cutEnd
+        this.tailStart = base + cutEnd;
       }
     }
     const tail = blocks.slice(firstUnstable).map((node, index) => ({
       node,
       key: blockKey(node, base, index),
-    }))
-    this.cached = { frozen: [...this.frozen], tail, generation: this.generation }
-    return this.cached
+    }));
+    this.cached = {
+      frozen: [...this.frozen],
+      tail,
+      generation: this.generation,
+    };
+    return this.cached;
   }
 }

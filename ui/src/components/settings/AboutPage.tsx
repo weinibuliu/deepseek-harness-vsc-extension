@@ -2,8 +2,8 @@
  * 「关于」页：插件版本号 + 源码仓库链接 + dsh package 信息（原 PackagePage 合并）。
  * 版本来自扩展侧 package.json version（经 SettingsPanelView.extensionVersion 下发）；
  * 仓库链接为静态常量，点击经 wire.openExternalUrl 由扩展侧在系统浏览器打开。
- * dsh package 部分展示可执行文件路径/来源/版本、settings.yaml 推导路径、
- * 逃生口（编辑 settings.yaml / 在 dsh web 打开）；未就绪（error/stopped）时显示
+ * dsh package 部分展示连接位置/版本、扩展运行时设置、settings.yaml 推导路径、
+ * 逃生口（打开 VS Code 设置 / 编辑 settings.yaml / 在 dsh web 打开）；未就绪时显示
  * 安装指引 + 手动选路径 + 错误详情，discovering/starting 显示启动中。
  */
 
@@ -19,6 +19,13 @@ const SOURCE_LABEL: Record<string, string> = {
   path: 'PATH',
   'npm-prefix': 'npm 全局',
   npx: 'npx',
+}
+
+const OWNERSHIP_LABEL: Record<string, string> = {
+  managed: '扩展全局管理',
+  'external-specified': '用户指定实例',
+  'external-discovered': '默认端口实例',
+  'external-managed-port': '约定端口外部实例',
 }
 
 const INSTALL_CMD = 'npm install -g @deepseek-ai/dsh'
@@ -76,10 +83,10 @@ export function AboutPage({ panel, wire, onOpenInBrowser }: AboutPageProps) {
       <section className="flex flex-col gap-3 border-t border-border-panel pt-3">
         <h3 className="text-xs font-medium text-foreground">Deepseek-harness Package</h3>
 
-        <Row label="dsh 可执行文件">
+        <Row label="DSH 连接">
           {panel === null ? (
             <span className="text-xs text-description">加载中…</span>
-          ) : found && panel.location.found ? (
+          ) : found && panel.location.found && panel.location.kind === 'launcher' ? (
             <>
               <span className="break-all text-xs" title={panel.location.command}>
                 {panel.location.command}
@@ -87,9 +94,30 @@ export function AboutPage({ panel, wire, onOpenInBrowser }: AboutPageProps) {
               </span>
               {panel.location.version ? <span className="text-xs text-description">版本 {panel.location.version}</span> : null}
             </>
+          ) : found && panel.location.found && panel.location.kind === 'endpoint' ? (
+            <>
+              <span className="break-all text-xs" title={panel.location.baseUrl}>{panel.location.baseUrl}</span>
+              <span className="text-xs text-description">
+                {OWNERSHIP_LABEL[panel.location.ownership] ?? panel.location.ownership}
+                {panel.location.version ? ` · 报告版本 ${panel.location.version}` : ''}
+              </span>
+            </>
           ) : (
-            <span className="text-xs text-warning">未嗅探到 dsh 可执行文件</span>
+            <span className="text-xs text-warning">未连接到 DSH</span>
           )}
+        </Row>
+
+        <Row label="扩展运行时设置">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-description">配置 dsh</span>
+            <button
+              type="button"
+              className="flex-none text-xs text-link hover:text-link-hover"
+              onClick={() => { wire.openExtensionSettings() }}
+            >
+              打开 VS Code 设置
+            </button>
+          </div>
         </Row>
 
         <Row label="settings.yaml">

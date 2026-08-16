@@ -5,10 +5,13 @@
  * showTextDocument 仍会打开绑定该路径的 buffer）。
  */
 
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve } from "node:path";
 
-export function resolveOpenPath(path: string, workspaceRoot: string | null): string {
-  if (isAbsolute(path)) return path
-  if (workspaceRoot === null || workspaceRoot === '') return path
-  return resolve(workspaceRoot, path)
+export function resolveOpenPath(
+  path: string,
+  workspaceRoot: string | null,
+): string {
+  if (isAbsolute(path)) return path;
+  if (workspaceRoot === null || workspaceRoot === "") return path;
+  return resolve(workspaceRoot, path);
 }

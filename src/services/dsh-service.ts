@@ -1,147 +1,390 @@
 /**
- * DshService: owns the end-to-end dsh runtime for one VS Code window
- * (D4/D9): discover -> spawn `dsh web --port 0` -> wire client + event
- * downlinks -> status to subscribers. One instance per extension activation;
- * window close stops the child via SIGTERM (route §6).
+ * One window-local DSH connection interface. Managed children live in the
+ * cross-window Runtime Broker; external/discovered instances are never killed.
  */
 
-import { EventEmitter } from 'node:events'
-import { WebSocket } from 'ws'
-import { discoverDsh, type DshLauncher } from '../dsh/discovery.ts'
-import { startDshWeb, type StartedDshServer } from '../dsh/server.ts'
-import { WireClient, EventStream, type EnvelopeValidator, type ServerRequest } from '../dsh/wire.ts'
-import { createWireValidator } from '../dsh/schemas.ts'
+import { EventEmitter } from "node:events";
+import { WebSocket } from "ws";
+import { discoverDsh, type DshLauncher } from "../dsh/discovery.ts";
+import {
+  isTcpPortOccupied,
+  loopbackDshUrl,
+  normalizeDshBaseUrl,
+  parseDshHostDescription,
+  probeDsh,
+} from "../dsh/probe.ts";
+import {
+  acquireRuntimeBroker,
+  runtimeBrokerPaths,
+  tryAcquireRuntimeBroker,
+  type RuntimeBrokerLease,
+} from "../dsh/runtime-broker-client.ts";
+import { createWireValidator } from "../dsh/schemas.ts";
+import {
+  EventStream,
+  WireClient,
+  type EnvelopeValidator,
+  type ServerRequest,
+} from "../dsh/wire.ts";
 
-export type DshStatus = 'discovering' | 'starting' | 'ready' | 'reconnecting' | 'stopped' | 'error'
+export type DshStatus =
+  "discovering" | "starting" | "ready" | "reconnecting" | "stopped" | "error";
+export type DshOwnership =
+  | "external-specified"
+  | "external-discovered"
+  | "external-managed-port"
+  | "managed";
 
 export interface DshServiceOptions {
-  minimumVersion: string
-  explicitPath?: string | null
-  onStatus?: (status: DshStatus, detail?: string) => void
-  onLog?: (line: string) => void
+  explicitPath?: string | null;
+  externalUrl?: string | null;
+  discoveryPort: number;
+  managedPort: number;
+  globalStoragePath: string;
+  brokerScript: string;
+  onStatus?: (status: DshStatus, detail?: string) => void;
+  onLog?: (line: string) => void;
+}
+
+interface ResolvedTarget {
+  baseUrl: string;
+  ownership: DshOwnership;
+  reportedVersion: string;
 }
 
 export class DshService extends EventEmitter {
-  private readonly options: DshServiceOptions
-  private launcher: DshLauncher | null = null
-  private server: StartedDshServer | null = null
-  private wire: WireClient | null = null
-  private validator: EnvelopeValidator | null = null
-  private mux: EventStream | null = null
-  private host: EventStream | null = null
-  private started = false
-  private stopping = false
-  private status: DshStatus = 'stopped'
-  /** 当前生效的显式 launcher 路径（M6：设置面板引导页改 dshPath 后经 restart 更新）。 */
-  private explicitPath: string | null | undefined
+  private readonly options: DshServiceOptions;
+  private launcher: DshLauncher | null = null;
+  private brokerLease: RuntimeBrokerLease | null = null;
+  private wire: WireClient | null = null;
+  private validator: EnvelopeValidator | null = null;
+  private mux: EventStream | null = null;
+  private host: EventStream | null = null;
+  private currentBaseUrl: string | null = null;
+  private ownership: DshOwnership | null = null;
+  private reportedVersion: string | null = null;
+  private started = false;
+  private stopping = false;
+  private status: DshStatus = "stopped";
+  private generation = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private explicitPath: string | null | undefined;
 
   constructor(options: DshServiceOptions) {
-    super()
-    this.options = options
-    this.explicitPath = options.explicitPath
+    super();
+    this.options = options;
+    this.explicitPath = options.explicitPath;
   }
 
   get statusValue(): DshStatus {
-    return this.status
+    return this.status;
   }
-
   get baseUrl(): string | null {
-    return this.server?.baseUrl ?? null
+    return this.currentBaseUrl;
   }
-
   get client(): WireClient | null {
-    return this.wire
+    return this.wire;
   }
-
   get launcherValue(): DshLauncher | null {
-    return this.launcher
+    return this.launcher;
+  }
+  get ownershipValue(): DshOwnership | null {
+    return this.ownership;
+  }
+  get reportedVersionValue(): string | null {
+    return this.reportedVersion;
   }
 
-  /**
-   * 重启 dsh 运行时（M6 设置面板引导页）：先 stop 再用（可能更新的）显式
-   * launcher 路径重新 discovery + spawn。start() 的 once 语义由 stop() 复位。
-   * @param explicitPath - 新的 `weinibuliu.dsh-vsc.dshPath`；省略则沿用当前值。
-   */
   async restart(explicitPath?: string | null): Promise<void> {
-    await this.stop()
-    this.explicitPath = explicitPath
-    await this.start()
+    await this.stop();
+    if (explicitPath !== undefined) this.explicitPath = explicitPath;
+    await this.start();
   }
 
   private setStatus(status: DshStatus, detail?: string): void {
-    this.status = status
-    this.options.onStatus?.(status, detail)
-    this.emit('status', status, detail)
+    this.status = status;
+    this.options.onStatus?.(status, detail);
+    this.emit("status", status, detail);
   }
 
-  /** Discover + spawn + connect wire + open event streams. Idempotent. */
+  /** Resolve one target, connect both event streams, and perform host.describe. */
   async start(): Promise<void> {
-    if (this.started) return
-    this.started = true
-    this.stopping = false
+    if (this.started) return;
+    this.started = true;
+    this.stopping = false;
+    this.launcher = null;
     try {
-      this.setStatus('discovering')
-      this.launcher = await discoverDsh({
-        minimumVersion: this.options.minimumVersion,
-        explicitPath: this.explicitPath,
-      })
-      this.options.onLog?.(`dsh package: ${this.launcher.version} @ ${this.launcher.command} (${this.launcher.source})`)
+      this.setStatus("discovering");
+      const target = await this.resolveTarget();
+      this.currentBaseUrl = target.baseUrl;
+      this.ownership = target.ownership;
+      this.reportedVersion = target.reportedVersion;
+      this.options.onLog?.(
+        `dsh endpoint: ${target.baseUrl}; ownership=${target.ownership}; reportedVersion=${target.reportedVersion}`,
+      );
+      // TODO(dsh-version): host.describe.version is currently a placeholder.
+      // Record it, but do not perform compatibility rejection.
 
-      this.setStatus('starting')
-      this.server = await startDshWeb({ launcher: this.launcher, onStderr: (line) => this.options.onLog?.(`[dsh] ${line}`) })
-      this.options.onLog?.(`dsh web service ready: ${this.server.baseUrl}`)
-
-      this.validator = await createWireValidator(this.launcher)
-      this.wire = new WireClient(this.server.baseUrl, this.validator ?? undefined)
-
-      // Event downlinks (§3). Frame dispatch lands on consumers via events.
-      const base = this.server.baseUrl.replace(/^http:/u, 'ws:')
-      this.mux = new EventStream({ url: `${base}/api/events.mux`, validator: this.validator ?? undefined }, WebSocket)
-      this.host = new EventStream({ url: `${base}/api/events.host`, validator: this.validator ?? undefined }, WebSocket)
-      this.mux.on('frame', (frame: ServerRequest) => this.emit('mux', frame))
-      this.host.on('frame', (frame: ServerRequest) => this.emit('host', frame))
-      this.mux.on('error', (error: Error) => this.options.onLog?.(`[events.mux] ${error.message}`))
-      this.host.on('error', (error: Error) => this.options.onLog?.(`[events.host] ${error.message}`))
-      // Reconnect signal for conversation resync (M2): the stream drops and
-      // auto-reopens; events emitted while it was down are refetched via
-      // session.history. Not emitted during a deliberate stop().
-      this.mux.on('close', () => {
-        if (!this.stopping) this.emit('muxClose')
-      })
-      // M4 重连状态: mux 掉线（非主动 stop）→ reconnecting；重连成功 → 回 ready。
-      // HTTP RPC 与 respond 与 WS 下行无关，pending 卡片在 reconnecting 期间仍可应答。
-      this.mux.on('close', () => {
-        if (!this.stopping && this.status === 'ready') this.setStatus('reconnecting')
-      })
-      this.mux.on('open', () => {
-        if (this.status === 'reconnecting') this.setStatus('ready')
-      })
-      this.mux.start()
-      this.host.start()
-
-      this.setStatus('ready')
+      this.setStatus("starting");
+      this.validator =
+        target.ownership === "managed" && this.launcher
+          ? await createWireValidator(this.launcher)
+          : null;
+      await this.openGeneration();
+      this.setStatus("ready");
     } catch (error) {
-      this.started = false
-      this.setStatus('error', error instanceof Error ? error.message : String(error))
-      throw error
+      this.started = false;
+      await this.releaseTarget();
+      const message = error instanceof Error ? error.message : String(error);
+      this.setStatus("error", message);
+      throw error;
     }
   }
 
-  /** Stop the child (SIGTERM grace) and tear down event streams. */
+  /** Disconnect this window; only the Broker may stop a managed child. */
   async stop(): Promise<void> {
-    this.stopping = true
-    this.mux?.stop()
-    this.host?.stop()
-    this.mux = null
-    this.host = null
-    const server = this.server
-    this.server = null
-    this.wire = null
-    this.started = false
-    if (server) {
-      const code = await server.stop()
-      this.options.onLog?.(`dsh web 已退出 (code=${String(code)})`)
-    }
-    this.setStatus('stopped')
+    this.stopping = true;
+    this.started = false;
+    this.generation += 1;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.closeTransport();
+    await this.releaseTarget();
+    this.currentBaseUrl = null;
+    this.ownership = null;
+    this.reportedVersion = null;
+    this.validator = null;
+    this.setStatus("stopped");
   }
+
+  private async resolveTarget(): Promise<ResolvedTarget> {
+    const external = this.options.externalUrl?.trim();
+    if (external) {
+      const baseUrl = normalizeDshBaseUrl(external);
+      const result = await probeDsh(baseUrl, 10_000);
+      if (result.kind !== "dsh")
+        throw new Error(`指定地址不是可用的 DSH：${result.reason}`);
+      return {
+        baseUrl: result.baseUrl,
+        ownership: "external-specified",
+        reportedVersion: result.description.version,
+      };
+    }
+
+    const discoveryUrl = loopbackDshUrl(this.options.discoveryPort);
+    const discovered = await probeDsh(discoveryUrl);
+    if (discovered.kind === "dsh") {
+      return {
+        baseUrl: discovered.baseUrl,
+        ownership: "external-discovered",
+        reportedVersion: discovered.description.version,
+      };
+    }
+    this.options.onLog?.(
+      `默认端口未发现 DSH (${discoveryUrl}): ${discovered.reason}`,
+    );
+
+    const managedUrl = loopbackDshUrl(this.options.managedPort);
+    const managed = await probeDsh(managedUrl);
+    const paths = runtimeBrokerPaths(this.options.globalStoragePath);
+    if (managed.kind === "dsh") {
+      // If this endpoint belongs to our Broker, holding a lease prevents one
+      // window from stopping the global child while another still uses it.
+      this.brokerLease = await tryAcquireRuntimeBroker({
+        paths,
+        port: this.options.managedPort,
+      });
+      if (this.brokerLease) {
+        return {
+          baseUrl: this.brokerLease.baseUrl,
+          ownership: this.brokerLease.managed
+            ? "managed"
+            : "external-managed-port",
+          reportedVersion: this.brokerLease.reportedVersion,
+        };
+      }
+      return {
+        baseUrl: managed.baseUrl,
+        ownership: "external-managed-port",
+        reportedVersion: managed.description.version,
+      };
+    }
+    // A Broker may already own the port while DSH is still booting. Acquire
+    // its lease before classifying the transient listener as a conflict.
+    this.brokerLease = await tryAcquireRuntimeBroker({
+      paths,
+      port: this.options.managedPort,
+    });
+    if (this.brokerLease) {
+      return {
+        baseUrl: this.brokerLease.baseUrl,
+        ownership: this.brokerLease.managed
+          ? "managed"
+          : "external-managed-port",
+        reportedVersion: this.brokerLease.reportedVersion,
+      };
+    }
+    if (await isTcpPortOccupied("127.0.0.1", this.options.managedPort)) {
+      throw new Error(
+        `DSH 管理端口 ${String(this.options.managedPort)} 已被其他程序占用：${managed.reason}`,
+      );
+    }
+
+    this.setStatus("discovering", "正在查找 dsh 可执行文件");
+    this.launcher = await discoverDsh({ explicitPath: this.explicitPath });
+    this.options.onLog?.(
+      `dsh package: ${this.launcher.version ?? "unknown"} @ ${this.launcher.command} (${this.launcher.source})`,
+    );
+    this.brokerLease = await acquireRuntimeBroker({
+      paths,
+      brokerScript: this.options.brokerScript,
+      port: this.options.managedPort,
+      launcher: this.launcher,
+      globalStoragePath: this.options.globalStoragePath,
+    });
+    return {
+      baseUrl: this.brokerLease.baseUrl,
+      ownership: this.brokerLease.managed ? "managed" : "external-managed-port",
+      reportedVersion: this.brokerLease.reportedVersion,
+    };
+  }
+
+  private async openGeneration(): Promise<void> {
+    const baseUrl = this.currentBaseUrl;
+    if (!baseUrl) throw new Error("DSH 连接目标尚未解析");
+    const generation = ++this.generation;
+    const wire = new WireClient(baseUrl, this.validator ?? undefined);
+    const wsBase = baseUrl
+      .replace(/^http:/u, "ws:")
+      .replace(/^https:/u, "wss:");
+    const mux = new EventStream(
+      {
+        url: `${wsBase}/api/events.mux`,
+        validator: this.validator ?? undefined,
+      },
+      WebSocket,
+    );
+    const host = new EventStream(
+      {
+        url: `${wsBase}/api/events.host`,
+        validator: this.validator ?? undefined,
+      },
+      WebSocket,
+    );
+    this.wire = wire;
+    this.mux = mux;
+    this.host = host;
+
+    mux.on("frame", (frame: ServerRequest) => this.emit("mux", frame));
+    host.on("frame", (frame: ServerRequest) => this.emit("host", frame));
+    mux.on("error", (error: Error) =>
+      this.options.onLog?.(`[events.mux] ${error.message}`),
+    );
+    host.on("error", (error: Error) =>
+      this.options.onLog?.(`[events.host] ${error.message}`),
+    );
+    let ready = false;
+    let closedWhileOpening = false;
+    const onClose = (): void => {
+      if (!ready) {
+        closedWhileOpening = true;
+        return;
+      }
+      this.onGenerationClosed(generation);
+    };
+    mux.on("close", onClose);
+    host.on("close", onClose);
+
+    const muxOpen = waitForEventOpen(mux);
+    const hostOpen = waitForEventOpen(host);
+    mux.start();
+    host.start();
+    try {
+      const [description] = await Promise.all([
+        wire.call<unknown>("host.describe", {}),
+        muxOpen,
+        hostOpen,
+      ]);
+      const parsed = parseDshHostDescription(description);
+      if (!parsed) throw new Error("host.describe 响应结构不符合 DSH 契约");
+      if (closedWhileOpening)
+        throw new Error("DSH WebSocket 在连接代际就绪前关闭");
+      this.reportedVersion = parsed.version;
+      ready = true;
+    } catch (error) {
+      if (generation === this.generation) {
+        this.generation += 1;
+        this.closeTransport();
+      }
+      throw error;
+    }
+  }
+
+  private onGenerationClosed(generation: number): void {
+    if (this.stopping || generation !== this.generation) return;
+    this.generation += 1;
+    this.closeTransport();
+    this.emit("muxClose");
+    this.setStatus("reconnecting");
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopping || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.openGeneration().then(
+        () => this.setStatus("ready"),
+        (error: unknown) => {
+          this.options.onLog?.(
+            `dsh 重连失败: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          this.scheduleReconnect();
+        },
+      );
+    }, 1_000);
+  }
+
+  private closeTransport(): void {
+    const mux = this.mux;
+    const host = this.host;
+    this.mux = null;
+    this.host = null;
+    this.wire = null;
+    mux?.stop();
+    host?.stop();
+  }
+
+  private async releaseTarget(): Promise<void> {
+    const lease = this.brokerLease;
+    this.brokerLease = null;
+    lease?.dispose();
+  }
+}
+
+function waitForEventOpen(
+  stream: EventStream,
+  timeoutMs = 10_000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      stream.off("open", onOpen);
+      stream.off("close", onClose);
+    };
+    const onOpen = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onClose = (): void => {
+      cleanup();
+      reject(new Error("DSH WebSocket 在就绪前关闭"));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("等待 DSH WebSocket 就绪超时"));
+    }, timeoutMs);
+    stream.once("open", onOpen);
+    stream.once("close", onClose);
+  });
 }

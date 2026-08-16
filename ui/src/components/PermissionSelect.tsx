@@ -5,7 +5,8 @@
  * 先弹风险确认门。读写与 /permission 弹出选择器同一条路径：选中即提交
  * `/permission <preset>` 命令，permissions 投影帧是唯一确认（本组件不做乐观更新）。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { PermissionSelectView } from '../../../src/shared/protocol.ts'
 import {
   IconCheckOutline16,
@@ -70,16 +71,57 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
   const [confirming, setConfirming] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
   const [index, setIndex] = useState(0)
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   // 点击外部关闭。
   useEffect(() => {
     if (!open) return
     const onMouseDown = (event: MouseEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) close()
+      if (!(event.target instanceof Node)) return
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      close()
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [open])
+
+  // 菜单 portaled 到 body，按触发器位置向上、右对齐展开，并钳制在视口安全边距内。
+  // 捕获阶段监听 scroll，覆盖 ChatArea 等嵌套滚动容器。
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null)
+      return
+    }
+    const place = (): void => {
+      const root = rootRef.current
+      const menu = menuRef.current
+      if (root === null || menu === null) return
+
+      const MARGIN = 16
+      const GAP = 4
+      const anchor = root.getBoundingClientRect()
+      const menuWidth = menu.offsetWidth
+      const menuHeight = menu.offsetHeight
+      const maxLeft = Math.max(MARGIN, window.innerWidth - menuWidth - MARGIN)
+      const left = Math.min(Math.max(anchor.right - menuWidth, MARGIN), maxLeft)
+
+      const above = anchor.top - menuHeight - GAP
+      const below = anchor.bottom + GAP
+      const preferredTop = above >= MARGIN ? above : below
+      const maxTop = Math.max(MARGIN, window.innerHeight - menuHeight - MARGIN)
+      const top = Math.min(Math.max(preferredTop, MARGIN), maxTop)
+      setMenuPosition({ left, top })
+    }
+
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
   }, [open])
 
   if (value === null) return null
@@ -155,8 +197,13 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
         <IconChevronDownOutline14 size={14} />
       </button>
 
-      {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-1 w-72 max-w-[calc(100vw_-_2rem)] overflow-hidden rounded-xs border border-border-panel bg-background shadow-lg">
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-20 w-72 max-w-[calc(100vw_-_2rem)] overflow-hidden rounded-xs border border-border-panel bg-background shadow-lg"
+          style={menuPosition ?? { left: 0, top: 0, visibility: 'hidden' }}
+        >
           <div className="max-h-[240px] overflow-y-auto py-1">
             {options.map((option, i) => {
               const selected = option.value === value.currentValue
@@ -165,9 +212,9 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
                 <button
                   key={option.value}
                   type="button"
-                  className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left ${
-                    i === index ? 'bg-selection text-selection-foreground' : 'hover:bg-list-hover'
-                  }`}
+                  role="menuitem"
+                  className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left ${i === index ? 'bg-selection text-selection-foreground' : 'hover:bg-list-hover'
+                    }`}
                   onMouseEnter={() => setIndex(i)}
                   onClick={() => choose(option.value)}
                 >
@@ -182,7 +229,8 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
               )
             })}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {confirming && (

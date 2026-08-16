@@ -52,13 +52,17 @@ interface ProviderEditorCardProps {
   credentialOnly?: boolean
   credentialRequired?: boolean
   autoFocusCredential?: boolean
+  cancelLabel?: string
+  submitLabel?: string
+  submitBusyLabel?: string
   onClose: (changed: boolean) => void
 }
 
 export function ProviderEditorCard(props: ProviderEditorCardProps) {
   const {
     row, namespace, protocols, wire, readOnly, hideTitle, credentialOnly,
-    credentialRequired, autoFocusCredential, onClose,
+    credentialRequired, autoFocusCredential, cancelLabel, submitLabel,
+    submitBusyLabel, onClose,
   } = props
   const settingsPath = row.settingsPath
   const ns = row.settingsNs
@@ -280,6 +284,9 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
           || (credentialOnly !== true && modelFailure !== undefined)
           || keyFailure !== undefined
           || (credentialRequired === true && keyValue.length === 0)}
+        {...cancelLabel === undefined ? {} : { cancelLabel }}
+        {...submitLabel === undefined ? {} : { submitLabel }}
+        {...submitBusyLabel === undefined ? {} : { submitBusyLabel }}
         onCancel={() => { onClose(false) }}
         onSubmit={() => { void apply() }}
       />

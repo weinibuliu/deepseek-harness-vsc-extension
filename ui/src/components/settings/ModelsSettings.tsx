@@ -13,6 +13,7 @@ import type {
 } from '../../../../src/shared/protocol.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { ProviderEditorCard } from './ProviderEditorCard.tsx'
+import { providerUsable } from './readiness.ts'
 import { deriveKeyRef } from './validate.ts'
 import type { SettingsWire } from './wire.ts'
 
@@ -46,12 +47,6 @@ function needsSetup(row: SettingsProviderRowView, anyUsable: boolean): boolean {
   if (anyUsable) return false
   if (row.settingsPath.length > 0) return false
   return row.credential?.configured !== true
-}
-
-function providerUsable(row: SettingsProviderRowView): boolean {
-  if (!row.active) return false
-  if (row.apiKeyEnv === undefined) return true
-  return row.credential?.configured === true
 }
 
 interface ModelsSettingsProps {
