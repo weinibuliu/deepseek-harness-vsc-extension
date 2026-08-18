@@ -43,6 +43,7 @@ import { noProviderReadiness } from './components/settings/readiness.ts'
 import { LoadingPage } from './components/LoadingPage.tsx'
 import type { SettingsReply, SettingsWire } from './components/settings/wire.ts'
 import { IconStopFill16 } from '../icons/index.tsx'
+import { t } from './i18n.ts'
 
 interface VscodeApi {
   postMessage(message: WebviewToExtensionMessage): void
@@ -643,8 +644,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleCancel(selectedSessionId)}
-              title="停止"
-              aria-label="停止生成"
+              title={t('action.stop')}
+              aria-label={t('action.stopGenerating')}
               className="input-icon-button absolute bottom-2 right-3 flex size-6 items-center justify-center rounded-xs text-error"
             >
               <IconStopFill16 size={15} />

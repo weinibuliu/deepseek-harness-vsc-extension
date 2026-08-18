@@ -7,6 +7,7 @@
 
 import { DshRpcError, type WireClient } from "../dsh/wire.ts";
 import type { SessionSummary, WorkspaceView } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 import { canonicalPath } from "./path-util.ts";
 
 export type { SessionSummary, WorkspaceView };
@@ -39,7 +40,7 @@ export class SessionService {
 
   private requireClient(): WireClient {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 尚未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 
@@ -124,7 +125,7 @@ export class SessionService {
     occupiedBlankSessionIds: readonly string[] = [],
   ): Promise<{ sessionId: string }> {
     const workspace = this.workspace;
-    if (!workspace) throw new Error("尚未关联 Workspace，无法创建会话");
+    if (!workspace) throw new Error(t("error.noWorkspace"));
     const client = this.requireClient();
     const { items: workspaces, archivedSessionIds } = await client.call<{
       items: WorkspaceView[];

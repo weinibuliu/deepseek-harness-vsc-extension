@@ -28,6 +28,12 @@ import {
   deriveSettingsYamlPath,
 } from "./services/settings-service.ts";
 import { ChatViewProvider } from "./webview/chat-view.ts";
+import {
+  detectLanguage,
+  setLanguage,
+  t,
+  type Language,
+} from "./shared/i18n.ts";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("DeepSeek Harness");
@@ -39,6 +45,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const discoveryPort = config.get<number>("discoveryPort", 3080);
   const managedPort = config.get<number>("managedPort", 30800);
   const autoStart = config.get<boolean>("autoStart", true);
+  // i18n: resolve the interface language once at activation; the webview gets
+  // the same resolved language via an injected boot global.
+  const language: Language = detectLanguage(
+    vscode.env.language,
+    config.get<string>("language", "auto"),
+  );
+  setLanguage(language);
 
   const dsh = new DshService({
     explicitPath,
@@ -104,8 +117,8 @@ export function activate(context: vscode.ExtensionContext): void {
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
-      openLabel: "选择 dsh 可执行文件",
-      title: "选择 dsh 可执行文件",
+      openLabel: t("dialog.pickDshPath"),
+      title: t("dialog.pickDshPath"),
     });
     if (!picked || picked.length === 0) return;
     const pickedUri = picked[0];
@@ -116,10 +129,14 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration("weinibuliu.dsh-vsc")
         .update("dshPath", path, vscode.ConfigurationTarget.Global);
       await dsh.restart(path);
-      void vscode.window.showInformationMessage(`dsh 路径已更新：${path}`);
+      void vscode.window.showInformationMessage(
+        t("info.dshPathUpdated", { path }),
+      );
     } catch (error) {
       void vscode.window.showErrorMessage(
-        `dsh 重启失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.dshRestartFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
   };
@@ -130,7 +147,9 @@ export function activate(context: vscode.ExtensionContext): void {
       await dsh.restart();
     } catch (error) {
       void vscode.window.showErrorMessage(
-        `dsh 重启失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.dshRestartFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
   };
@@ -199,9 +218,12 @@ export function activate(context: vscode.ExtensionContext): void {
       error?: { message?: string };
     };
     if (payload.type === "stream/error") {
-      const message = payload.error?.message ?? "事件流错误";
+      const message = payload.error?.message ?? t("error.eventStream");
       log(`[events.mux] stream/error: ${message}`);
-      provider.post({ type: "notice", text: `事件流错误：${message}` });
+      provider.post({
+        type: "notice",
+        text: t("error.eventStreamDetail", { message }),
+      });
     }
   });
   dsh.on("host", (frame) => {
@@ -232,7 +254,7 @@ export function activate(context: vscode.ExtensionContext): void {
     };
     if (hpayload.type === "stream/error") {
       log(`[events.host] stream/error: ${hpayload.error?.message ?? ""}`);
-      provider.post({ type: "notice", text: "事件流错误" });
+      provider.post({ type: "notice", text: t("error.eventStream") });
     }
     // M3b: 命令目录失效（host remote-event 允许名单透传）→ 失效缓存并重拉当前会话。
     if (frame.method === "host/remote-event") {
@@ -291,6 +313,7 @@ export function activate(context: vscode.ExtensionContext): void {
     pickDshPath,
     restartDsh,
     context.extensionUri,
+    language,
   );
 
   context.subscriptions.push(
@@ -341,7 +364,7 @@ export function activate(context: vscode.ExtensionContext): void {
       async () => {
         const url = dsh.baseUrl;
         if (!url) {
-          void vscode.window.showErrorMessage("dsh web 尚未就绪");
+          void vscode.window.showErrorMessage(t("error.dshNotReady"));
           return;
         }
         await vscode.env.openExternal(vscode.Uri.parse(url));
@@ -406,7 +429,9 @@ export function activate(context: vscode.ExtensionContext): void {
     dsh.start().catch((error: unknown) => {
       log(`启动失败: ${String(error)}`);
       void vscode.window.showErrorMessage(
-        `dsh 启动失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.dshStartFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     });
   }

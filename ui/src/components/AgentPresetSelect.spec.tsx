@@ -45,9 +45,9 @@ describe('AgentPresetSelect', () => {
 
     fireEvent.click(view.getByRole('button', { name: '标准模式' }))
 
-    expect(view.getAllByText('内置')).toHaveLength(2)
-    expect(view.getByText('自定义')).toBeTruthy()
-    expect(view.getByText('默认')).toBeTruthy()
+    expect(view.getAllByText('Built-in')).toHaveLength(2)
+    expect(view.getByText('Custom')).toBeTruthy()
+    expect(view.getByText('Default')).toBeTruthy()
     expect(view.queryByText('坏模式')).toBeNull()
     fireEvent.click(view.getByRole('menuitem', { name: /PTC 模式/ }))
     expect(onSelect).toHaveBeenCalledWith('code')
@@ -81,7 +81,7 @@ describe('AgentPresetSelect', () => {
     )
 
     fireEvent.click(view.getByRole('button', { name: '标准模式' }))
-    expect(view.getByText(/模式已锁定/)).toBeTruthy()
+    expect(view.getByText(/locked after the first session/)).toBeTruthy()
     expect((view.getByRole('menuitem', { name: /PTC 模式/ }) as HTMLButtonElement).disabled).toBe(true)
     expect((view.getByRole('menuitem', { name: /标准模式/ }) as HTMLButtonElement).disabled).toBe(false)
   })

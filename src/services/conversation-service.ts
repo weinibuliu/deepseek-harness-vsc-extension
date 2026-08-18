@@ -37,6 +37,7 @@ import type {
   ConversationItem,
   ConversationSnapshot,
 } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 import type { ProjectionsBlock } from "./projection-service.ts";
 
 /** One session.history page entry (structural; view is unused in v1). */
@@ -269,7 +270,7 @@ export class ConversationService extends EventEmitter {
 
   private requireClient(): WireClient {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 尚未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 
@@ -282,7 +283,7 @@ export class ConversationService extends EventEmitter {
     if (!notes || notes.length === 0) return snapshot;
     const items: ConversationItem[] = [...snapshot.items];
     for (const message of notes)
-      items.push({ kind: "note", text: `会话出错：${message}` });
+      items.push({ kind: "note", text: t("note.sessionError", { message }) });
     return { ...snapshot, items };
   }
 }

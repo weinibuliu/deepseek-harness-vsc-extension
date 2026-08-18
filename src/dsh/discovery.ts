@@ -12,6 +12,7 @@
 import { accessSync, constants } from "node:fs";
 import { execFile } from "node:child_process";
 import { delimiter, join } from "node:path";
+import { t } from "../shared/i18n.ts";
 
 /** Candidate executable names per platform. */
 function candidateNames(): string[] {
@@ -154,16 +155,13 @@ export async function discoverDsh(options: {
   const version = await probeVersion(launcher.command, launcher.args);
   if (version === null) {
     if (launcher.source === "config") {
-      throw new Error(`配置的 dsh 路径不可执行或无法运行: ${explicit}`);
+      throw new Error(t("error.configPathNotExecutable", { path: explicit ?? "" }));
     }
     if (launcher.source === "npx") {
-      throw new Error(
-        "未找到 dsh：PATH、npm 全局目录均无 dsh，且 `npx --no-install @deepseek-ai/dsh` 不可用。" +
-          " 请先安装：`npm install -g @deepseek-ai/dsh`，或在设置 weinibuliu.dsh-vsc.dshPath 中指定路径。",
-      );
+      throw new Error(t("error.dshNotFound"));
     }
     throw new Error(
-      `找到 dsh (${launcher.command}) 但无法执行 --version 探测。`,
+      t("error.versionProbeFailed", { command: launcher.command }),
     );
   }
 

@@ -40,9 +40,9 @@ describe("probeDsh", () => {
   it("rejects credentials and non-root paths in external URLs", () => {
     expect(() =>
       normalizeDshBaseUrl("https://user:secret@example.com:3080"),
-    ).toThrow(/用户名或密码/u);
+    ).toThrow(/username or password/u);
     expect(() => normalizeDshBaseUrl("https://example.com:3080/dsh")).toThrow(
-      /根路径/u,
+      /root path/u,
     );
   });
 });

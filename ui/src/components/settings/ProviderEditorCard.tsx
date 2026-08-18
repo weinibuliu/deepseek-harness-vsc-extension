@@ -16,6 +16,7 @@ import { EditorFooter } from './EditorFooter.tsx'
 import { ModelCatalogEditor } from './ModelCatalogEditor.tsx'
 import { deletePath, getPath, hasPath, setPath } from './path.ts'
 import { apiKeyFailure, deriveKeyRef, modelDrafts, validateDeepSeekModels } from './validate.ts'
+import { t } from '../../i18n.ts'
 import type { SettingsWire } from './wire.ts'
 
 type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
@@ -95,10 +96,10 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
   const keyFailure = apiKeyFailure(keyDraft)
   const keyValue = keyDraft.trim()
   const keyPlaceholder = keyState?.writable === false
-    ? '凭据只读（环境锁定）'
+    ? t('editor.credentialReadOnly')
     : keyState?.configured === true && credentialRequired !== true
-      ? '已配置'
-      : layout === 'pi-ai' ? 'API Key（可留空使用环境认证）' : 'API Key'
+      ? t('editor.configured')
+      : layout === 'pi-ai' ? t('editor.apiKeyOptional') : 'API Key'
 
   const probe = {
     settingsNs: ns,
@@ -148,7 +149,7 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
   }
 
   if (namespace === undefined) {
-    return <p className="text-xs text-error">{row.provider}: 无法解析设置路径</p>
+    return <p className="text-xs text-error">{t('editor.cannotResolvePath', { provider: row.provider })}</p>
   }
 
   // 用户覆盖之前的有效 models（base 或 schema 默认已在 join 侧算好）。
@@ -177,7 +178,7 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
         </div>
       )}
       {layout === 'unknown' ? (
-        <p className="text-xs text-description">该 provider 无专用编辑器（{ns}）</p>
+        <p className="text-xs text-description">{t('editor.noEditor', { ns })}</p>
       ) : (
         <>
           <label className="flex flex-col gap-0.5">
@@ -197,21 +198,21 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
             />
           </label>
           {keyFailure !== undefined
-            ? <p className="text-xs text-error">{keyFailure === 'keyBlank' ? 'Key 不能只有空白' : 'Key 含非法字符'}</p>
+            ? <p className="text-xs text-error">{keyFailure === 'keyBlank' ? t('editor.keyBlank') : t('editor.keyIllegal')}</p>
             : null}
           {credentialOnly === true ? null : (
             <details className="rounded-xs border border-border-panel px-2 py-1">
-              <summary className="cursor-pointer text-xs text-description">自定义设置</summary>
+              <summary className="cursor-pointer text-xs text-description">{t('editor.customSettings')}</summary>
               <div className="mt-1.5 flex flex-col gap-1.5">
                 {ownsIdentity ? (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-xs text-description">显示名</span>
+                    <span className="text-xs text-description">{t('editor.displayName')}</span>
                     <input
                       className="w-full rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
                       type="text"
                       value={stringAt(draft, 'displayName') ?? ''}
                       placeholder={stringAt(getPath(namespace.base, settingsPath), 'displayName') ?? row.provider}
-                      aria-label="显示名"
+                      aria-label={t('editor.displayName')}
                       disabled={disabled}
                       onChange={(event) => { setField('displayName', event.target.value) }}
                     />
@@ -225,7 +226,7 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
                     value={stringAt(draft, 'baseURL') ?? ''}
                     placeholder={layout === 'deepseek'
                       ? DEEPSEEK_PUBLIC_BASE_URL
-                      : stringAt(fallback, 'baseURL') ?? '默认'}
+                      : stringAt(fallback, 'baseURL') ?? t('agentPreset.default')}
                     aria-label="Base URL"
                     disabled={disabled}
                     onChange={(event) => { setField('baseURL', event.target.value === '' ? undefined : event.target.value) }}
@@ -233,16 +234,16 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
                 </label>
                 {ownsIdentity ? (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-xs text-description">协议</span>
+                    <span className="text-xs text-description">{t('editor.protocol')}</span>
                     <select
                       className="w-full rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
                       value={stringAt(draft, 'api') ?? stringAt(fallback, 'api') ?? ''}
-                      aria-label="协议"
+                      aria-label={t('editor.protocol')}
                       disabled={disabled}
                       onChange={(event) => { setField('api', event.target.value) }}
                     >
                       {stringAt(draft, 'api') === undefined && stringAt(fallback, 'api') === undefined
-                        ? <option value="">未选择</option>
+                        ? <option value="">{t('editor.noneSelected')}</option>
                         : null}
                       {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
                     </select>
@@ -269,12 +270,14 @@ export function ProviderEditorCard(props: ProviderEditorCardProps) {
       )}
       {modelFailure !== undefined && credentialOnly !== true ? (
         <p className="text-xs text-description">
-          模型 {modelFailure.index + 1}: {
-            modelFailure.key === 'modelIdRequired' ? 'ID 必填'
-              : modelFailure.key === 'modelIdDuplicate' ? 'ID 重复'
-                : modelFailure.key === 'modelNameInvalid' ? '名称非法'
-                  : modelFailure.key === 'modelContextInvalid' ? '上下文窗口非法'
-                    : '最大输出非法'}
+          {t('editor.modelFailure', {
+            index: modelFailure.index + 1,
+            detail: modelFailure.key === 'modelIdRequired' ? t('editor.idRequired')
+              : modelFailure.key === 'modelIdDuplicate' ? t('editor.idDuplicate')
+                : modelFailure.key === 'modelNameInvalid' ? t('editor.nameInvalid')
+                  : modelFailure.key === 'modelContextInvalid' ? t('editor.contextInvalid')
+                    : t('editor.maxTokensInvalid'),
+          })}
         </p>
       ) : null}
       {failure !== undefined ? <p className="text-xs text-error">{failure}</p> : null}

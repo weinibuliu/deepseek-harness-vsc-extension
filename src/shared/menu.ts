@@ -153,7 +153,7 @@ const CATEGORY_ROWS: AtCategory[] = ["files", "problems"];
 /** /model 客户端贡献（D14）：插件侧实现，provider 分组 → session.selectModel。 */
 export const MODEL_CONTRIBUTION: CommandDescriptorView = {
   name: "model",
-  description: "选择当前会话的模型（provider 分组 → 模型）",
+  description: "Select the session model (provider group → model)",
 };
 
 /** 合并 /model 客户端贡献（宿主命令同名冲突时保持宿主行）。 */

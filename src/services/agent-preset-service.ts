@@ -9,6 +9,7 @@ import type {
   AgentPresetEntryView,
   AgentPresetSelectView,
 } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 const UNBOUND_KEY = "__unbound__";
 
@@ -41,7 +42,7 @@ export class AgentPresetService {
 
   private requireClient(): Pick<WireClient, "call"> {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 尚未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 
@@ -233,7 +234,7 @@ export class AgentPresetService {
     for (const [key, id] of this.stages) {
       if (this.isSelectable(id)) continue;
       this.stages.delete(key);
-      this.errors.set(key, `Agent Preset \"${id}\" 已不可用`);
+      this.errors.set(key, t("error.agentPresetUnavailable", { name: id }));
     }
   }
 }

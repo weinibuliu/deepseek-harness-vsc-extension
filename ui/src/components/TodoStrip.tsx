@@ -11,6 +11,7 @@
 
 import { useState } from 'react'
 import type { TodoItem } from '../../../src/shared/protocol.ts'
+import { t } from '../i18n.ts'
 
 interface TodoStripProps {
   /** 当前会话的 todo 计划条（null/[] = 不渲染，静默降级）。 */
@@ -24,9 +25,9 @@ function progressLabel(todos: TodoItem[]): string {
   const pending = todos.length - done - active
   // U+2002 en-space 分隔（对齐 dsh web progressLabel：普通空格会被 HTML 折叠）。
   return [
-    ...(done > 0 ? [`${done} 已完成`] : []),
-    ...(active > 0 ? [`${active} 进行中`] : []),
-    ...(pending > 0 ? [`${pending} 待处理`] : []),
+    ...(done > 0 ? [t('todo.done', { count: done })] : []),
+    ...(active > 0 ? [t('todo.active', { count: active })] : []),
+    ...(pending > 0 ? [t('todo.pending', { count: pending })] : []),
   ].join('\u2002·\u2002')
 }
 
@@ -83,7 +84,7 @@ export function TodoStrip({ todos }: TodoStripProps) {
   if (!todos || todos.length === 0) return null
 
   return (
-    <section className="flex-none px-3.5 pt-2" aria-label="任务">
+    <section className="flex-none px-3.5 pt-2" aria-label={t('todo.title')}>
       <div className="overflow-hidden rounded-xs border border-border-panel bg-muted/25">
         <button
           type="button"
@@ -100,7 +101,7 @@ export function TodoStrip({ todos }: TodoStripProps) {
             />
             <path d="M13 10.5l1.5 1.5L17 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" transform="translate(-1,0)" />
           </svg>
-          <span className="text-xs font-medium text-foreground">任务</span>
+          <span className="text-xs font-medium text-foreground">{t('todo.title')}</span>
           <span className="truncate text-xs text-description">{progressLabel(todos)}</span>
           <span className="ml-auto shrink-0 text-xs text-description" aria-hidden>
             {collapsed ? '▾' : '▴'}

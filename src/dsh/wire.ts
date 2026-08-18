@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { WebSocket as WsWebSocket } from "ws";
+import { t } from "../shared/i18n.ts";
 
 // ---- wire full forms (structural mirror of dsh-host-apiproxy/api/rpc.ts) ----
 
@@ -99,28 +100,31 @@ export class WireClient {
       });
     } catch (error) {
       throw new Error(
-        `dsh web RPC ${method} 传输失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.rpcTransport", {
+          method,
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
     if (!response.ok) {
       // HTTP status is carrier-only; business errors arrive as 200 (§3).
       throw new Error(
-        `dsh web RPC ${method} 载体错误: HTTP ${response.status}`,
+        t("error.rpcHttp", { method, status: response.status }),
       );
     }
     let parsed: unknown;
     try {
       parsed = await response.json();
     } catch {
-      throw new Error(`dsh web RPC ${method} 响应不是 JSON`);
+      throw new Error(t("error.rpcNotJson", { method }));
     }
     if (this.validator && !this.validator.validateServerResponse(parsed)) {
-      throw new Error(`dsh web RPC ${method} 响应未通过运行时 schema 校验`);
+      throw new Error(t("error.rpcSchema", { method }));
     }
     const message = parsed as ServerResponse;
     if (message.type !== "server-response" || message.rpcId !== rpcId) {
       throw new Error(
-        `dsh web RPC ${method} 响应信封不匹配 (type=${message.type as string})`,
+        t("error.rpcEnvelope", { method, type: message.type as string }),
       );
     }
     if (message.result.ok) return message.result.value as T;
@@ -141,7 +145,7 @@ export class WireClient {
       body: JSON.stringify(body),
     });
     if (!response.ok)
-      throw new Error(`dsh web respond 载体错误: HTTP ${response.status}`);
+      throw new Error(t("error.respondHttp", { status: response.status }));
     const parsed: unknown = await response.json();
     const receipt = parsed as RpcReceipt;
     if (
@@ -149,7 +153,7 @@ export class WireClient {
       typeof receipt !== "object" ||
       typeof receipt.accepted !== "boolean"
     ) {
-      throw new Error("dsh web respond 回执格式异常");
+      throw new Error(t("error.respondFormat"));
     }
     return receipt;
   }
@@ -225,18 +229,18 @@ export class EventStream extends EventEmitter {
       try {
         parsed = JSON.parse(String(event.data));
       } catch {
-        this.emit("error", new Error("事件帧不是 JSON"));
+        this.emit("error", new Error(t("error.eventFrameNotJson")));
         return;
       }
       if (this.validator && !this.validator.validateServerRequest(parsed)) {
-        this.emit("error", new Error("事件帧未通过运行时 schema 校验"));
+        this.emit("error", new Error(t("error.eventFrameSchema")));
         return;
       }
       const message = parsed as ServerRequest;
       if (message.type !== "server-request") {
         this.emit(
           "error",
-          new Error(`事件帧 type 异常: ${String(message.type)}`),
+          new Error(t("error.eventFrameType", { type: String(message.type) })),
         );
         return;
       }
@@ -254,7 +258,7 @@ export class EventStream extends EventEmitter {
     };
     socket.onerror = () => {
       // onclose follows; nothing to do here besides surfacing.
-      this.emit("error", new Error(`事件流连接错误: ${this.url}`));
+      this.emit("error", new Error(t("error.eventStreamConnect", { url: this.url })));
     };
   }
 }

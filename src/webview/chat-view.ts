@@ -40,6 +40,7 @@ import type { DshLauncher } from "../dsh/discovery.ts";
 import type { DshOwnership } from "../services/dsh-service.ts";
 import { escapeHtml, getNonce, injectCsp, rewriteAssetUrls } from "./html.ts";
 import { resolveOpenPath } from "./open-file.ts";
+import { t, type Language } from "../shared/i18n.ts";
 
 /** ADR-0004: 文件提及词表上限；超过则上送空词表（禁用提及），避免超大工作区推送巨型集合。 */
 const FILE_INDEX_MAX = 5000;
@@ -119,6 +120,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly pickDshPath: () => Promise<void>,
     private readonly restartDsh: () => Promise<void>,
     private readonly extensionUri: vscode.Uri,
+    private readonly language: Language,
   ) {
     // Streaming/replay updates: push a fresh snapshot whenever the selected
     // session's fold changes (chunk deltas, turn boundaries, replay resync).
@@ -377,7 +379,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             requestId: message.requestId,
             operation: "send",
             status: "failed",
-            text: "该会话已有 prompt 正在提交",
+            text: t("error.promptInFlight"),
           });
           return;
         }
@@ -416,7 +418,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               type: "commandNotice",
               sessionId,
               level: "info",
-              text: result.command.text ?? "命令已执行",
+              text: result.command.text ?? t("notice.commandExecuted"),
             });
           }
           if (operation.cancelRequested) await this.sessions.cancel(sessionId);
@@ -464,7 +466,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             type: "commandNotice",
             sessionId: message.sessionId,
             level: "error",
-            text: "活动会话不能归档",
+            text: t("error.activeSessionCannotArchive"),
           });
           return;
         }
@@ -627,7 +629,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (option === undefined) {
         this.agentPresets.fail(
           sourceSessionId,
-          `Agent Preset \"${agentPreset}\" 不可选择`,
+          t("error.agentPresetNotSelectable", { name: agentPreset }),
           true,
         );
         return;
@@ -643,7 +645,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (summary === undefined) {
         this.agentPresets.fail(
           sourceSessionId,
-          "无法确认当前会话状态",
+          t("error.cannotConfirmSessionState"),
           true,
         );
         return;
@@ -651,7 +653,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (!summary.blank) {
         this.agentPresets.fail(
           sourceSessionId,
-          "会话首次运行后 Agent Preset 已锁定",
+          t("agentPreset.locked"),
           true,
         );
         return;
@@ -889,10 +891,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     currentTitle: string | null,
   ): Promise<void> {
     const input = await vscode.window.showInputBox({
-      prompt: "重命名会话",
+      prompt: t("dialog.renameSessionPrompt"),
       value: currentTitle ?? "",
       validateInput: (value) =>
-        value.trim().length === 0 ? "标题不能为空" : undefined,
+        value.trim().length === 0 ? t("error.titleEmpty") : undefined,
     });
     if (input === undefined) return; // 用户取消
     try {
@@ -1187,7 +1189,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           type: "commandNotice",
           sessionId: sourceSessionId,
           level: "error",
-          text: `未知或格式错误的命令：${line}`,
+          text: t("error.unknownCommand", { line }),
         });
         this.post({
           type: "composerOperation",
@@ -1196,7 +1198,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           requestId,
           operation: "command",
           status: "failed",
-          text: `未知或格式错误的命令：${line}`,
+          text: t("error.unknownCommand", { line }),
         });
       } else {
         if (sourceSessionId === null) {
@@ -1281,7 +1283,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "commandNotice",
         sessionId: sourceSessionId,
         level: "info",
-        text: `已选择模型 ${provider}/${model}`,
+        text: t("notice.modelSelected", { provider, model }),
       });
       this.post({
         type: "composerOperation",
@@ -1397,7 +1399,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           type: "pendingError",
           sessionId,
           key,
-          text: `应答未受理：${receipt.reason}`,
+          text: t("error.answerNotAccepted", { reason: receipt.reason }),
         });
       }
     } catch (error) {
@@ -1417,7 +1419,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           type: "pendingError",
           sessionId,
           key,
-          text: `取消未受理：${receipt.reason}`,
+          text: t("error.cancelNotAccepted", { reason: receipt.reason }),
         });
       }
     } catch (error) {
@@ -1748,7 +1750,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(uri);
     } catch (error) {
       void vscode.window.showErrorMessage(
-        `打开 settings.yaml 失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.openSettingsYamlFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
   }
@@ -1766,7 +1770,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(uri);
     } catch (error) {
       void vscode.window.showErrorMessage(
-        `打开文件失败: ${error instanceof Error ? error.message : String(error)}`,
+        t("error.openFileFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
       );
     }
   }
@@ -1786,11 +1792,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       html = readFileSync(indexPath, "utf8");
     } catch {
-      return this.errorHtml("webview 未构建：请先运行 pnpm run build");
+      return this.errorHtml(t("error.webviewNotBuilt"));
     }
     const nonce = getNonce();
     return injectCsp(
-      rewriteAssetUrls(html, `${webviewRoot}`),
+      rewriteAssetUrls(html, `${webviewRoot}`).replace(
+        "<head>",
+        `<head><script nonce="${nonce}">window.__DSH_LANGUAGE__ = ${JSON.stringify(this.language)};</script>`,
+      ),
       nonce,
       webview.cspSource,
     );

@@ -135,6 +135,17 @@
           "default": true,
           "scope": "machine",
           "description": "Resolve and connect to the global DSH runtime when a workspace window opens."
+        },
+        "weinibuliu.dsh-vsc.language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "en",
+            "zh"
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "description": "Interface language. \"auto\" follows VS Code's display language; Chinese is used for zh locales, English otherwise."
         }
       }
     }

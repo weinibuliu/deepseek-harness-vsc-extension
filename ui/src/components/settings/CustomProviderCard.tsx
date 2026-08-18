@@ -10,6 +10,7 @@ import type { SettingsProviderCreate } from '../../../../src/shared/protocol.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelCatalogEditor } from './ModelCatalogEditor.tsx'
 import { apiKeyFailure, ROUTE_PATTERN, validateDeepSeekModels } from './validate.ts'
+import { t } from '../../i18n.ts'
 import type { SettingsWire } from './wire.ts'
 
 const NS = 'llm-pi-ai'
@@ -73,7 +74,7 @@ export function CustomProviderCard(props: CustomProviderCardProps) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm">自定义 Provider</span>
+      <span className="text-sm">{t('models.customProvider')}</span>
       <label className="flex flex-col gap-0.5">
         <span className="text-xs text-description">Route ID</span>
         <input
@@ -87,16 +88,16 @@ export function CustomProviderCard(props: CustomProviderCardProps) {
         />
       </label>
       {routeInvalid || routeTaken
-        ? <p className="text-xs text-error">{routeInvalid ? 'Route ID 非法' : 'Route ID 已存在'}</p>
-        : <p className="text-xs text-description">小写字母/数字/连字符，不能以数字开头</p>}
+        ? <p className="text-xs text-error">{routeInvalid ? t('editor.routeInvalid') : t('editor.routeTaken')}</p>
+        : <p className="text-xs text-description">{t('editor.routeHint')}</p>}
       <label className="flex flex-col gap-0.5">
-        <span className="text-xs text-description">显示名</span>
+        <span className="text-xs text-description">{t('editor.displayName')}</span>
         <input
           className="w-full rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
           type="text"
           value={displayName}
-          placeholder={route.length === 0 ? '显示名' : route}
-          aria-label="显示名"
+          placeholder={route.length === 0 ? t('editor.displayName') : route}
+          aria-label={t('editor.displayName')}
           disabled={disabled}
           onChange={(event) => { setDisplayName(event.target.value) }}
         />
@@ -114,11 +115,11 @@ export function CustomProviderCard(props: CustomProviderCardProps) {
         />
       </label>
       <label className="flex flex-col gap-0.5">
-        <span className="text-xs text-description">协议</span>
+        <span className="text-xs text-description">{t('editor.protocol')}</span>
         <select
           className="w-full rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
           value={protocol}
-          aria-label="协议"
+          aria-label={t('editor.protocol')}
           disabled={disabled}
           onChange={(event) => { setProtocol(event.target.value) }}
         >
@@ -132,14 +133,14 @@ export function CustomProviderCard(props: CustomProviderCardProps) {
           type="password"
           autoComplete="off"
           value={keyDraft}
-          placeholder="API Key（可留空使用环境认证）"
+          placeholder={t('editor.apiKeyOptional')}
           aria-label="API Key"
           disabled={disabled}
           onChange={(event) => { setKeyDraft(event.target.value) }}
         />
       </label>
       {keyFailure !== undefined
-        ? <p className="text-xs text-error">{keyFailure === 'keyBlank' ? 'Key 不能只有空白' : 'Key 含非法字符'}</p>
+        ? <p className="text-xs text-error">{keyFailure === 'keyBlank' ? t('editor.keyBlank') : t('editor.keyIllegal')}</p>
         : null}
       <ModelCatalogEditor
         models={models}
@@ -151,13 +152,13 @@ export function CustomProviderCard(props: CustomProviderCardProps) {
       />
       {failure !== undefined ? <p className="text-xs text-error">{failure}</p> : null}
       {modelFailure !== undefined ? (
-        <p className="text-xs text-description">模型 {modelFailure.index + 1} 校验失败</p>
+        <p className="text-xs text-description">{t('editor.modelValidationFailed', { index: modelFailure.index + 1 })}</p>
       ) : null}
       <EditorFooter
         busy={busy}
         submitDisabled={disabled || !ready}
-        submitLabel="创建"
-        submitBusyLabel="创建中…"
+        submitLabel={t('action.create')}
+        submitBusyLabel={t('common.creating')}
         onCancel={() => { onClose(false) }}
         onSubmit={() => { void create() }}
       />

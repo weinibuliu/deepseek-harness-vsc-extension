@@ -17,6 +17,7 @@ import {
   type BrokerReply,
 } from "./runtime-broker-protocol.ts";
 import { startDshWeb, type StartedDshServer } from "./server.ts";
+import { t } from "../shared/i18n.ts";
 
 const socketPath = requiredArgument(process.argv[2]);
 const metadataPath = requiredArgument(process.argv[3]);
@@ -87,7 +88,7 @@ async function startIpc(): Promise<void> {
 
 function requiredArgument(value: string | undefined): string {
   if (value === undefined || value === "")
-    throw new Error("Runtime Broker 缺少启动参数");
+    throw new Error(t("error.brokerMissingArgs"));
   return value;
 }
 
@@ -104,12 +105,15 @@ async function handleAcquire(socket: Socket, raw: string): Promise<void> {
     )
       throw new RuntimeBrokerError(
         "configuration",
-        "无效的 Broker acquire 请求",
+        t("error.brokerInvalidRequest"),
       );
     if (runtime && runtime.port !== request.port) {
       throw new RuntimeBrokerError(
         "configuration",
-        `全局 DSH 已固定在端口 ${String(runtime.port)}，不能切换到 ${String(request.port)}`,
+        t("error.brokerPortMismatch", {
+          port: String(runtime.port),
+          other: String(request.port),
+        }),
       );
     }
     if (shutdownTimer) clearTimeout(shutdownTimer);
@@ -173,13 +177,13 @@ async function bootRuntime(
   if (await isTcpPortOccupied("127.0.0.1", port)) {
     throw new RuntimeBrokerError(
       "port-conflict",
-      `DSH 管理端口 ${String(port)} 已被其他程序占用：${existing.reason}`,
+      t("error.portConflict", { port: String(port), reason: existing.reason }),
     );
   }
   if (!launcher)
     throw new RuntimeBrokerError(
       "launcher-required",
-      "启动 DSH 需要可执行文件信息",
+      t("error.launcherRequired"),
     );
 
   let server: StartedDshServer;
@@ -202,7 +206,10 @@ async function bootRuntime(
     if (await isTcpPortOccupied("127.0.0.1", port)) {
       throw new RuntimeBrokerError(
         "port-conflict",
-        `DSH 管理端口 ${String(port)} 启动竞争失败且端口已被占用：${winner.reason}`,
+        t("error.portConflictRace", {
+          port: String(port),
+          reason: winner.reason,
+        }),
       );
     }
     throw error;
@@ -211,7 +218,7 @@ async function bootRuntime(
   const verified = await probeDsh(baseUrl, 5_000);
   if (verified.kind !== "dsh") {
     await server.stop();
-    throw new Error(`已启动进程但 DSH 握手失败：${verified.reason}`);
+    throw new Error(t("error.handshakeFailed", { reason: verified.reason }));
   }
   const state = {
     baseUrl,

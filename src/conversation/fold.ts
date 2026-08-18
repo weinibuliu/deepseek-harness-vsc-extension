@@ -38,6 +38,7 @@ import type {
   TurnEndKind,
   WriteChangeView,
 } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 /** Structural mirror of dsh-session's SessionEvent (data stays untyped here). */
 export interface WireSessionEvent {
@@ -785,12 +786,15 @@ export class ConversationFold {
         const reason = (event.data as TurnEndData).reason;
         let changed = wasRunning; // the running flip itself is a visible change
         if (reason?.kind === "aborted") {
-          this.items.push({ kind: "note", text: "已中断" });
+          this.items.push({ kind: "note", text: t("note.interrupted") });
           changed = true;
         } else if (reason?.kind === "error") {
           this.items.push({
             kind: "note",
-            text: `出错：${reason.error?.message ?? reason.message ?? "未知错误"}`,
+            text: t("note.error", {
+              message:
+                reason.error?.message ?? reason.message ?? t("note.unknownError"),
+            }),
           });
           changed = true;
         }

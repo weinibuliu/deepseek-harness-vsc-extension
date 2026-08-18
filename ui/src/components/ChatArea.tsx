@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ConversationItem, ToolResultView } from '../../../src/shared/protocol.ts'
 import { MarkdownText, type MarkdownFileMentions } from '../markdown/MarkdownText.tsx'
+import { t } from '../i18n.ts'
 import {
   IconApiOutline14,
   IconBrowseOutline16,
@@ -125,7 +126,7 @@ function ThinkingSection({ reasoning, streaming }: { reasoning: string; streamin
               : ''
           }
         >
-          {streaming ? '思考中…' : '思考'}
+          {streaming ? t('thinking.streaming') : t('thinking.collapsed')}
         </span>
         {expanded ? (
           <IconChevronDownOutline14 size={12} className="shrink-0 text-description" />
@@ -269,7 +270,7 @@ function ContextBody({
       return (
         <div className="mt-1 space-y-1">
           {body.update ? (
-            <p className="text-[11px] text-description">技能目录已更新：以下目录取代此前所有技能列表。</p>
+            <p className="text-[11px] text-description">{t('context.catalogUpdated')}</p>
           ) : null}
           <ul className="space-y-0.5">
             {shown.map((entry) => (
@@ -280,7 +281,7 @@ function ContextBody({
             ))}
           </ul>
           {body.entries.length > shown.length ? (
-            <p className="text-[11px] text-description">还有 {body.entries.length - shown.length} 个技能…</p>
+            <p className="text-[11px] text-description">{t('context.moreSkills', { count: body.entries.length - shown.length })}</p>
           ) : null}
         </div>
       )
@@ -288,7 +289,7 @@ function ContextBody({
     case 'snapshot':
       return (
         <div className="mt-1 space-y-1">
-          <p className="text-[11px] text-description">本快照取代此前所有运行时上下文快照。</p>
+          <p className="text-[11px] text-description">{t('context.snapshotReplaced')}</p>
           <dl className="space-y-1">
             {body.sections.map((section, index) => (
               <div key={index} className="space-y-0.5">
@@ -324,7 +325,7 @@ function ContextBody({
     case 'relay':
       return (
         <div className="mt-1 space-y-1">
-          <p className="text-[11px] text-description">来自会话 {body.senderSessionId}</p>
+          <p className="text-[11px] text-description">{t('context.fromSession', { id: body.senderSessionId })}</p>
           <pre className="max-h-[160px] overflow-y-auto whitespace-pre-wrap break-words text-xs leading-normal text-description">
             {item.text}
           </pre>
@@ -338,10 +339,10 @@ function ContextBody({
               <li key={index} className="flex items-baseline gap-1.5 text-xs">
                 <span className="truncate font-mono text-badge-foreground">{reference.label}</span>
                 <span className="shrink-0 text-description">
-                  保留 {reference.retained} · 省略 {reference.omitted}
+                  {t('context.retainedOmitted', { retained: reference.retained, omitted: reference.omitted })}
                 </span>
                 {reference.truncated ? (
-                  <span className="shrink-0 text-description">已截断</span>
+                  <span className="shrink-0 text-description">{t('context.truncated')}</span>
                 ) : null}
               </li>
             ))}
@@ -355,9 +356,9 @@ function ContextBody({
 }
 
 function instructionActionLabel(action: 'set' | 'replace' | 'remove', baseline: boolean): string {
-  if (action === 'remove') return '已移除'
-  if (baseline) return '已载入'
-  return action === 'set' ? '已新增' : '已更新'
+  if (action === 'remove') return t('context.removed')
+  if (baseline) return t('context.loaded')
+  return action === 'set' ? t('context.added') : t('context.updated')
 }
 
 /** M3c 上下文注入节点：折叠披露行（角色本地化 + 生产者名原样；notice 的 summary 亦显示在折叠行，展开看 form 正文）。 */
@@ -369,7 +370,7 @@ function ContextRowView({
   onOpenFile: (path: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const title = item.role === 'recall' ? '跨会话召回' : '上下文注入'
+  const title = item.role === 'recall' ? t('context.recall') : t('context.inject')
   const summary = item.body?.form === 'notice' ? item.body.summary : null
   return (
     <div className="my-1 rounded-xs border border-border-panel p-2">
@@ -533,7 +534,7 @@ function ToolCardView({
             />
             {item.summary.lines !== undefined ? (
               <span className="text-description">
-                {' '}({item.summary.lines} Lines
+                {' '}({item.summary.lines} {t('tool.lines')}
                 {item.summary.bytes ? ` | ${formatKb(item.summary.bytes)}kb` : ''})
               </span>
             ) : null}
@@ -677,7 +678,7 @@ export function ChatArea({
         onClick={handleLoadOlder}
         className="cursor-pointer rounded-xs border border-border-panel px-2.5 py-1 text-xs text-description hover:border-border hover:text-foreground disabled:cursor-wait disabled:opacity-60"
       >
-        {loadingOlder ? '加载中…' : '加载更早'}
+        {loadingOlder ? t('common.loading') : t('chat.loadOlder')}
       </button>
       {loadOlderError ? <p className="text-xs text-error">{loadOlderError}</p> : null}
     </div>
@@ -690,7 +691,7 @@ export function ChatArea({
           {loadOlderRow}
           <div className="flex flex-1 items-center justify-center">
             <p className="px-6 text-center text-sm text-description">
-              {running ? '回复中…' : '选择一个会话，或点击 ＋ 新建。'}
+              {running ? t('chat.replying') : t('chat.emptyState')}
             </p>
           </div>
         </div>
@@ -715,7 +716,7 @@ export function ChatArea({
           {running ? (
             <div className="flex items-center gap-1.5 pt-2.5 text-xs text-description">
               <IconLoadingOutline16 size={12} className="shrink-0 animate-spin" />
-              回复中…
+              {t('chat.replying')}
             </div>
           ) : null}
         </div>
