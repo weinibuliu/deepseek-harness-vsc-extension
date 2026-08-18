@@ -65,10 +65,17 @@ export function HistoryPanel({
   const cardRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
   const [rowMenu, setRowMenu] = useState<RowMenuState | null>(null)
-  // M7.2: 分批渲染——先显示 10 条，滚动到底自动追加下一批（条数过多时可滑动查看）。
+  // M7.2: 分批渲染——先显示 10 条，滚动到底/底部哨兵可见时自动追加下一批
+  // （条数过多时可滑动查看；内容不足一屏时哨兵兜底，保证始终能继续加载）。
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+
+  const appendBatch = (): void => {
+    setVisibleCount((count) => Math.min(count + PAGE_SIZE, sessions.length))
+  }
 
   const measure = (): void => {
     const button = triggerRef.current
@@ -105,6 +112,24 @@ export function HistoryPanel({
     return () => window.removeEventListener('resize', onResize)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // 底部哨兵：可见即追加下一批（内容不足一屏、没有滚动条时也能持续加载，
+  // 直到出现滚动；出现后由哨兵 + onScroll 双通道继续翻批）。
+  // position 入依赖：卡片挂载晚一拍（锚点测量后），挂载后再建立观察。
+  useEffect(() => {
+    if (!open) return
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) appendBatch()
+      },
+      { root: listRef.current, rootMargin: '40px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, position, sessions.length, visibleCount])
 
   useEffect(() => {
     if (!open) return
@@ -167,12 +192,13 @@ export function HistoryPanel({
             </button>
           </div>
           <div
+            ref={listRef}
             className="min-h-0 flex-1 overflow-y-auto"
             onScroll={(event) => {
               const el = event.currentTarget
               // 滚动接近底部 → 追加下一批（每次 10 条）。
               if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
-                setVisibleCount((count) => Math.min(count + PAGE_SIZE, sessions.length))
+                appendBatch()
               }
             }}
           >
@@ -248,6 +274,8 @@ export function HistoryPanel({
               })
             )}
             {/* M7.2: 分批显示进度（滚动到底自动追加下一批）。 */}
+            {/* 底部哨兵：可见即加载下一批（IntersectionObserver 观察）。 */}
+            <div ref={sentinelRef} className="h-px" aria-hidden />
             {sessions.length > visibleCount ? (
               <div className="px-3 py-1.5 text-center text-[11px] text-description">
                 已显示 {visibleCount} / {sessions.length} 条（继续下滑加载更多）

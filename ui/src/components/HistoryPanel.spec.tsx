@@ -1,8 +1,32 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionActivityView, SessionSummary } from '../../../src/shared/protocol.ts'
 import { HistoryPanel } from './HistoryPanel.tsx'
+
+/** jsdom 无 IntersectionObserver：记录实例，测试可手动触发可见性回调。 */
+class MockIntersectionObserver {
+  static instances: MockIntersectionObserver[] = []
+  readonly callback: IntersectionObserverCallback
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback
+    MockIntersectionObserver.instances.push(this)
+  }
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  trigger(isIntersecting: boolean): void {
+    this.callback(
+      [{ isIntersecting } as unknown as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    )
+  }
+}
+
+beforeEach(() => {
+  MockIntersectionObserver.instances = []
+  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
+})
 
 const SESSIONS: SessionSummary[] = [
   {
@@ -160,5 +184,31 @@ describe('HistoryPanel', () => {
     expect(list).toBeTruthy()
     fireEvent.scroll(list)
     expect(view.container.querySelectorAll('[role="button"]')).toHaveLength(20)
+  })
+
+  it('loads the next batch via the bottom sentinel even when the card content fits (no scrollbar)', () => {
+    const many: SessionSummary[] = Array.from({ length: 25 }, (_, i) => ({
+      sessionId: `s-${i}`,
+      updatedAt: i,
+      running: false,
+      blank: false,
+    }))
+    renderPanel({ sessions: many, activities: {} })
+
+    // 哨兵可见（内容不足一屏）→ 不需要滚动即可追加批次，直到全部加载。
+    const observer = MockIntersectionObserver.instances[0]
+    expect(observer).toBeTruthy()
+    act(() => {
+      observer?.trigger(true)
+    })
+    act(() => {
+      MockIntersectionObserver.instances[MockIntersectionObserver.instances.length - 1]?.trigger(true)
+    })
+    act(() => {
+      MockIntersectionObserver.instances[MockIntersectionObserver.instances.length - 1]?.trigger(true)
+    })
+    // 25 条全部渲染（批次追加在 visibleCount == sessions.length 时停止）。
+    const rows = document.querySelectorAll('[role="button"]')
+    expect(rows.length).toBe(25)
   })
 })
