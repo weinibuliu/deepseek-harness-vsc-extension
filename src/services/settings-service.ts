@@ -24,6 +24,9 @@ import type {
   DiscoveredModelView,
   HostDescribeView,
   PermissionDefaultView,
+  SettingsCardView,
+  SettingsFieldView,
+  SettingsMutateRequest,
   SettingsPanelView,
   SettingsProfileApply,
   SettingsProviderCreate,
@@ -89,7 +92,7 @@ interface SchemaEnvelope {
 interface SchemaNodeDescriptor {
   uid: number;
   type: string;
-  meta?: { default?: unknown; description?: unknown };
+  meta?: { default?: unknown; description?: unknown; disabled?: unknown; role?: unknown };
   inner?: number;
   list?: number[];
   dict?: Record<string, number>;
@@ -141,6 +144,170 @@ function schemaDefaultAt(schema: unknown, path: readonly string[]): unknown {
   if (root === undefined) return undefined;
   const node = schemaNodeAt(root, path, (schema as SchemaEnvelope).refs);
   return node?.meta?.default;
+}
+
+// ---- M7: plugin 注册 settings 卡片（rc7 卡片机制跟进；schema 派生通用卡）----
+
+/** 拥有专用卡片的 namespace（不在通用卡列表重复出现）。 */
+const DEDICATED_CARD_NAMESPACES = new Set([
+  "llm-pi-ai", // Models 专用卡（provider 行 + 凭据 + discover）
+  "permission", // 「通用」专用卡（默认权限模式 + 风险门）
+  "ui-conversation", // 「通用」专用卡（繁忙时 Enter 键行为）
+]);
+
+/** meta.description 可能为 string 或 i18n dict（'' 键 = 基础语言）；统一读取。 */
+function metaLabel(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (value !== null && typeof value === "object") {
+    const base = (value as Record<string, unknown>)[""];
+    if (typeof base === "string" && base.length > 0) return base;
+  }
+  return undefined;
+}
+
+/** 从 schema 根节点派生一个 namespace 的通用卡字段（顶层字段；对象/数组落 json 编辑器）。 */
+function deriveGenericFields(view: SettingsNamespaceView): SettingsFieldView[] {
+  const schema = view.schema;
+  const root = schemaRoot(schema);
+  if (root === undefined || root.type !== "object" || root.dict === undefined)
+    return [];
+  const refs = (schema as SchemaEnvelope).refs;
+  const fields: SettingsFieldView[] = [];
+  for (const [key, uid] of Object.entries(root.dict)) {
+    const node = refs[uid];
+    if (node === undefined) continue;
+    if (node.meta?.disabled === true) continue; // form UIs 禁用字段不渲染
+    const path = [key];
+    const label = metaLabel(node.meta?.description) ?? key;
+    const description = metaLabel(node.meta?.description);
+    if (node.meta?.role === "secret") {
+      // role('secret')：值被 redact，只暴露「是否已配置」；写方向可携带新值。
+      const secret = view.secrets.find(
+        (entry) => entry.path.length === 1 && entry.path[0] === key,
+      );
+      fields.push({
+        kind: "secret",
+        path,
+        label,
+        ...(description === undefined ? {} : { description }),
+        set: secret?.set ?? false,
+      });
+      continue;
+    }
+    const value = getPath(view.value, path);
+    const overridden = hasPath(view.user, path);
+    switch (node.type) {
+      case "string":
+        fields.push({
+          kind: "string",
+          path,
+          label,
+          ...(description === undefined ? {} : { description }),
+          value: typeof value === "string" ? value : "",
+          overridden,
+        });
+        break;
+      case "number":
+        fields.push({
+          kind: "number",
+          path,
+          label,
+          ...(description === undefined ? {} : { description }),
+          value: typeof value === "number" ? value : undefined,
+          overridden,
+        });
+        break;
+      case "boolean":
+        fields.push({
+          kind: "boolean",
+          path,
+          label,
+          ...(description === undefined ? {} : { description }),
+          value: value === true,
+          overridden,
+        });
+        break;
+      case "union": {
+        // const 字符串候选 → 枚举；非全 const → json 兜底（保守，不渲染错误子树）。
+        const candidates = (node.list ?? [])
+          .map((id) => refs[id])
+          .filter((candidate): candidate is SchemaNodeDescriptor => candidate !== undefined);
+        if (
+          candidates.length > 0 &&
+          candidates.every(
+            (candidate) =>
+              candidate.type === "const" && typeof candidate.value === "string",
+          )
+        ) {
+          const options = candidates.map((candidate) => ({
+            id: candidate.value as string,
+            label: metaLabel(candidate.meta?.description) ?? (candidate.value as string),
+          }));
+          const current =
+            typeof value === "string" ? value : options[0]?.id ?? "";
+          if (!options.some((option) => option.id === current)) {
+            options.push({ id: current, label: current });
+          }
+          fields.push({
+            kind: "enum",
+            path,
+            label,
+            ...(description === undefined ? {} : { description }),
+            value: current,
+            options,
+            overridden,
+          });
+        } else {
+          fields.push({
+            kind: "json",
+            path,
+            label,
+            ...(description === undefined ? {} : { description }),
+            value,
+            overridden,
+          });
+        }
+        break;
+      }
+      case "object":
+      case "dict":
+      case "array":
+        fields.push({
+          kind: "json",
+          path,
+          label,
+          ...(description === undefined ? {} : { description }),
+          value,
+          overridden,
+        });
+        break;
+      default:
+        // const（只读）、transform/lazy/function 等不可编辑类型：跳过，绝不渲染错误子树。
+        break;
+    }
+  }
+  return fields;
+}
+
+/** 由 settings.describe 派生 plugin 注册的通用配置卡片（专用卡 namespace 除外）。 */
+export function deriveGenericCards(
+  describe: SettingsDescribeResult,
+): SettingsCardView[] {
+  return describe.namespaces
+    .filter((view) => !DEDICATED_CARD_NAMESPACES.has(view.ns))
+    .map((view) => {
+      const root = schemaRoot(view.schema);
+      return {
+        ns: view.ns,
+        title: view.ns,
+        ...(root === undefined || metaLabel(root.meta?.description) === undefined
+          ? {}
+          : { description: metaLabel(root.meta?.description) }),
+        applies: view.applies,
+        fields: deriveGenericFields(view),
+        revision: view.revision,
+      };
+    });
 }
 
 // ---- JSON path helpers (webview 无需解析 schema；扩展侧 join 用) ----
@@ -451,6 +618,10 @@ export class SettingsService {
       ...(permissionDefault === undefined ? {} : { permissionDefault }),
       ...(busyEnter === undefined ? {} : { busyEnter }),
       ...(host === undefined ? {} : { host }),
+      // M7: plugin 注册的 settings 配置卡片（rc7 卡片机制跟进）。
+      cards: deriveGenericCards(describe),
+      extensionPrefs: { waitingLines: [], autoCheckUpdates: false }, // 由 chat-view 覆写
+      update: { currentVersion: "", state: "idle" }, // 由 chat-view 覆写
     };
   }
 
@@ -649,5 +820,64 @@ export class SettingsService {
     } catch {
       return DEFAULT_BUSY_ENTER_BEHAVIOR;
     }
+  }
+
+  /** M7: 通用卡片字段写操作（path ops mutate；conflict = revision 失配）。 */
+  async mutateField(
+    request: SettingsMutateRequest,
+  ): Promise<SettingsWriteResult> {
+    const client = this.requireClient();
+    try {
+      await client.call("settings.mutate", {
+        ns: request.ns,
+        ops: request.ops,
+        expectedRevision: request.expectedRevision,
+      });
+    } catch (error) {
+      if (rpcErrorCode(error) === "settings-conflict") {
+        return {
+          ok: false,
+          text: "配置已被其它编辑修改，已刷新，请重试",
+          conflict: true,
+        };
+      }
+      return { ok: false, text: messageOf(error) };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * M7: 通过 npm registry 查询 dsh 最新版本（@deepseek-ai/dsh 的 latest dist-tag）。
+   * 返回最新版本号；网络异常抛用户可读错误。
+   */
+  async checkLatestDshVersion(): Promise<string> {
+    let response: Response;
+    try {
+      response = await fetch(
+        "https://registry.npmjs.org/@deepseek-ai/dsh/latest",
+        { signal: AbortSignal.timeout(10_000) },
+      );
+    } catch (error) {
+      throw new Error(
+        `无法访问 npm registry：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!response.ok) {
+      throw new Error(`npm registry 查询失败：HTTP ${response.status}`);
+    }
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch {
+      throw new Error("npm registry 响应不是 JSON");
+    }
+    const version =
+      parsed !== null && typeof parsed === "object"
+        ? (parsed as { version?: unknown }).version
+        : undefined;
+    if (typeof version !== "string" || version.length === 0) {
+      throw new Error("npm registry 响应缺少版本号");
+    }
+    return version;
   }
 }

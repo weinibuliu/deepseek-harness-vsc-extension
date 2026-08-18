@@ -12,6 +12,7 @@
 
 import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
+import { access, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ActiveFileView,
@@ -19,9 +20,12 @@ import type {
   AtRefPayload,
   BusyEnterBehavior,
   ComposerSubmitGesture,
+  ExtensionPrefsView,
   ExtensionToWebviewMessage,
   SessionActivityView,
   SessionSummary,
+  SettingsMutateRequest,
+  UpdateCheckView,
   WebviewToExtensionMessage,
 } from "../shared/protocol.ts";
 import type { SessionService } from "../services/session-service.ts";
@@ -36,6 +40,8 @@ import type { SkillService } from "../services/skill-service.ts";
 import type { AgentPresetService } from "../services/agent-preset-service.ts";
 import type { PendingInteractionService } from "../services/pending-interaction-service.ts";
 import type { SettingsService } from "../services/settings-service.ts";
+import type { InitCommandService } from "../services/init-command-service.ts";
+import type { ExtensionPrefsService } from "../services/extension-prefs-service.ts";
 import type { DshLauncher } from "../dsh/discovery.ts";
 import type { DshOwnership } from "../services/dsh-service.ts";
 import { escapeHtml, getNonce, injectCsp, rewriteAssetUrls } from "./html.ts";
@@ -43,6 +49,26 @@ import { resolveOpenPath } from "./open-file.ts";
 
 /** ADR-0004: 文件提及词表上限；超过则上送空词表（禁用提及），避免超大工作区推送巨型集合。 */
 const FILE_INDEX_MAX = 5000;
+
+/** M7: 语义化版本比较（x.y.z[-pre]；返回 >0 = a 更新；非语义化时按字典序回落）。 */
+function compareVersions(a: string, b: string): number {
+  const parse = (value: string): number[] =>
+    value
+      .split(/[.-]/u)
+      .map((part) => {
+        const num = Number(part);
+        return Number.isNaN(num) ? Number.MAX_SAFE_INTEGER : num;
+      });
+  const left = parse(a);
+  const right = parse(b);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    const l = left[i] ?? 0;
+    const r = right[i] ?? 0;
+    if (l !== r) return l - r;
+  }
+  return 0;
+}
 
 /** 用量统计相关投影 key（tokenUsage/sessionStats/contextPressure/contextBreakdown）。 */
 const USAGE_STATS_KEYS = [
@@ -94,6 +120,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private busyEnter: BusyEnterBehavior = "queue";
   /** ADR-0004: 已上送文件提及词表对应的工作区根（变化才重枚举）。 */
   private fileIndexWorkspacePath: string | null = null;
+  /** M7: dsh 更新检查状态（面板展示 + 手动/自动检查翻转）。 */
+  private updateView: UpdateCheckView = { currentVersion: "", state: "idle" };
+  /** M7: 同时运行对话数上限（weinibuliu.dsh-vsc.maxParallelSessions）。 */
+  private readonly maxParallelSessions: () => number;
 
   /** 当前选中会话（extension.ts 的 commands/change 失效重拉用）。 */
   get selectedSessionId(): string | null {
@@ -115,11 +145,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly agentPresets: AgentPresetService,
     private readonly pendingInteractions: PendingInteractionService,
     private readonly settings: SettingsService,
+    private readonly prefs: ExtensionPrefsService,
+    private readonly initCommand: InitCommandService,
     private readonly dshFacts: () => DshFacts,
     private readonly pickDshPath: () => Promise<void>,
     private readonly restartDsh: () => Promise<void>,
     private readonly extensionUri: vscode.Uri,
+    maxParallelSessions: () => number = () =>
+      vscode.workspace
+        .getConfiguration("weinibuliu.dsh-vsc")
+        .get<number>("maxParallelSessions", 5),
   ) {
+    this.maxParallelSessions = maxParallelSessions;
     // Streaming/replay updates: push a fresh snapshot whenever the selected
     // session's fold changes (chunk deltas, turn boundaries, replay resync).
     conversations.on("change", (sessionId: string) => {
@@ -183,6 +220,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await this.hydrate();
         break;
       case "newSession": {
+        // M7: 多对话并行上限（进行中的对话数达到上限时拒绝新建，防止无界并发）。
+        if (this.countRunningSessions() >= this.maxParallelSessions()) {
+          this.post({
+            type: "notice",
+            text: `同时运行的对话数已达上限（${this.maxParallelSessions()}），请等待或停止进行中的对话`,
+          });
+          return;
+        }
         try {
           const navigationId = message.navigationId ?? this.navigationId + 1;
           if (navigationId < this.navigationId) return;
@@ -369,6 +414,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
           return;
         }
+        // M7: 多对话并行上限——目标会话尚未运行（本次发送将使其运行）且运行数已达上限 → 拒绝。
+        if (
+          this.activities.get(sessionId)?.running !== true &&
+          this.countRunningSessions() >= this.maxParallelSessions()
+        ) {
+          this.post({
+            type: "composerOperation",
+            sourceSessionId,
+            sessionId,
+            requestId: message.requestId,
+            operation: "send",
+            status: "failed",
+            text: `同时运行的对话数已达上限（${this.maxParallelSessions()}），请等待或停止进行中的对话`,
+          });
+          return;
+        }
         if (this.promptInFlight.has(sessionId)) {
           this.post({
             type: "composerOperation",
@@ -396,7 +457,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             sessionId,
             message.gesture ?? "enter",
           );
-          // 自动附带：把眼睛启用的活动文件折叠成消息前的 @ 引用行。
+          // 自动附带（origin/main）：把眼睛启用的活动文件折叠成消息前的 @ 引用行。
           const finalText = await this.foldAttachments(
             text,
             sessionId,
@@ -458,6 +519,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "refresh":
         await this.refreshSessions();
         break;
+      // M7: 归档会话（契约跟随：rc7 无 session.delete RPC，后端存储同步的归档面
+      // 就是 workspace.archiveSession——会话从所有分组表面消失、注册表持久化）。
+      // 活动会话拒绝归档（数据安全：不可误操作）；归档的是当前会话 → 自动切换到
+      // 最近的其他会话（或空态）。
       case "archiveSession": {
         if (this.isSessionActive(message.sessionId)) {
           this.post({
@@ -471,11 +536,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
           await this.sessions.archiveSession(message.sessionId);
           this.agentPresets.clear(message.sessionId);
+          this.conversations.forget(message.sessionId);
+          this.activities.delete(message.sessionId);
           this.post({ type: "sessionArchived", sessionId: message.sessionId });
           if (this._selectedSessionId === message.sessionId) {
-            this._selectedSessionId = null;
-            this.post({ type: "selectedSession", sessionId: null });
-            await this.refreshAgentPresets(null);
+            // 自动切换到最近的其他对话：重拉列表后取第一条（updatedAt 降序）；无会话 → 空态。
+            const workspace = this.sessions.currentWorkspace;
+            const remaining = workspace
+              ? await this.sessions.listSessions(message.sessionId)
+              : [];
+            const next = remaining[0]?.sessionId ?? null;
+            this._selectedSessionId = next;
+            this.post({ type: "selectedSession", sessionId: next });
+            if (next !== null) {
+              await this.loadConversation(next);
+              await this.refreshComposerCatalogs(next);
+              await this.refreshAgentPresets(next);
+            } else {
+              await this.refreshAgentPresets(null);
+            }
           }
           await this.refreshSessions();
         } catch (error) {
@@ -485,10 +564,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       case "renameSession":
         await this.renameSession(message.sessionId, message.currentTitle);
-        break;
-      // 历史分页：加载所选会话更早的记录（session.history beforeSeq 向后翻页）。
-      case "loadOlder":
-        await this.serveLoadOlder(message.sessionId);
         break;
       // M6: 设置面板。
       case "settingsOpen":
@@ -547,6 +622,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "openFile":
         await this.serveOpenFile(message.path);
+        break;
+      // M7: 无限滚动——接近顶部时加载更早的对话记录。
+      case "loadOlder":
+        await this.serveLoadOlder(message.sessionId);
+        break;
+      // M7: 从某条用户消息 Fork 新会话（继承上下文 + 文本填入新输入框）。
+      case "forkSession":
+        await this.serveForkSession(message.sessionId, message.seq, message.text);
+        break;
+      // M7: 通用 settings 卡片字段写操作。
+      case "settingsMutate":
+        await this.serveSettingsMutate(message.id, message.request);
+        break;
+      // M7: 保存轮播词库（globalState 持久化 → 刷新面板 + 推送 prefs）。
+      case "settingsSetWaitingLines":
+        await this.serveSetWaitingLines(message.lines);
+        break;
+      // M7: 手动检查 dsh 更新（npm registry）。
+      case "settingsCheckUpdate":
+        await this.serveCheckUpdate(message.id);
+        break;
+      // M7: 自动检查更新开关（weinibuliu.dsh-vsc.autoCheckUpdates）。
+      case "settingsSetAutoCheckUpdates":
+        await this.serveSetAutoCheckUpdates(message.enabled);
         break;
     }
   }
@@ -824,8 +923,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
     // 繁忙时 Enter 偏好 best-effort 加载（失败回落 queue，不阻塞重水合）。
     this.busyEnter = await this.settings.loadBusyEnter();
+    // M7: 扩展偏好（轮播词库）与更新检查基线随重水合推送。
+    this.updateView = { currentVersion: facts.reportedVersion ?? "", state: "idle" };
+    this.postPrefs();
     await this.refreshSessions();
-    // 自动附带：webview 重水合时补发当前活动编辑器文件。
+    // 自动附带（origin/main）：webview 重水合时补发当前活动编辑器文件。
     this.postActiveFile();
     if (facts.status === "ready")
       await this.refreshAgentPresets(this._selectedSessionId);
@@ -910,71 +1012,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  /**
-   * 历史向前翻页（「加载更早」）：扩展侧调 session.history beforeSeq 取上一页，
-   * 成功后快照经 conversations change 事件自动推送（与流式更新同通道）；
-   * 失败经 loadOlderError 反馈，webview 复位按钮加载态并内联展示错误。
-   */
-  private async serveLoadOlder(sessionId: string): Promise<void> {
-    try {
-      await this.conversations.loadOlder(sessionId);
-    } catch (error) {
-      this.post({ type: "loadOlderError", sessionId, text: String(error) });
-    }
-  }
-
-  /**
-   * 自动附带：把启用文件折叠成消息前的 @ 引用行（与用户手 @ 的引用同机制——
-   * dsh 侧按其 cwd 解析）。每个文件经基准计算取相对/绝对路径，失败回退绝对
-   * 路径（路径永在）；与用户文本中已有的引用去重（同一 token 不重复注入）。
-   */
-  private async foldAttachments(
-    text: string,
-    sessionId: string,
-    attachments?: string[],
-  ): Promise<string> {
-    const list = attachments ?? [];
-    if (list.length === 0) return text;
-    const refs: string[] = [];
-    const seen = new Set<string>();
-    for (const absolutePath of list) {
-      let ref = `@${absolutePath}`;
-      try {
-        const result = await this.atRef.buildReference(
-          { absolutePath, relativePath: "", pinned: false, dirty: false },
-          sessionId,
-        );
-        ref = `@${result.path}`;
-      } catch {
-        // 无工作区 / 基准计算失败：绝对路径兜底。
-      }
-      if (seen.has(ref) || text.includes(ref)) continue;
-      seen.add(ref);
-      refs.push(ref);
-    }
-    if (refs.length === 0) return text;
-    return `${refs.join("\n")}\n\n${text}`;
-  }
-
-  /**
-   * 自动附带：上送当前活动编辑器文件（composer 下方文件条数据源）。
-   * 无编辑器 → null（webview 隐藏文件条）；由 extension.ts 的活动编辑器 /
-   * 工作区目录变化监听与 hydrate 调用。
-   */
-  postActiveFile(): void {
-    const file = this.atRef.activeFile();
-    if (!file) {
-      this.post({ type: "activeFile", file: null });
-      return;
-    }
-    const view: ActiveFileView = {
-      absolutePath: file.absolutePath,
-      relativePath: file.relativePath,
-      dirty: file.dirty,
-    };
-    this.post({ type: "activeFile", file: view });
-  }
-
   /** Replay the session's history into the conversation fold and push it. */
   private async loadConversation(sessionId: string): Promise<void> {
     try {
@@ -1040,7 +1077,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "commands",
         sessionId: responseSessionId,
         requestId,
-        snapshot: { available: true, items },
+        snapshot: {
+          available: true,
+          // M7: /init 是扩展侧贡献的命令（扫描仓库生成 AGENTS.md），并入宿主目录。
+          items: [
+            ...items,
+            { name: "init", description: "扫描当前仓库并生成 AGENTS.md" },
+          ],
+        },
       });
     } catch (error) {
       this.post({ type: "notice", text: String(error) });
@@ -1175,6 +1219,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     line: string,
     occupiedBlankSessionIds: readonly string[] = [],
   ): Promise<void> {
+    // M7: /init 是扩展侧贡献的命令——扫描当前仓库生成 AGENTS.md（不进 dsh 命令面）。
+    const commandName = line.trim().replace(/^\/+/u, "").split(/\s+/u)[0] ?? "";
+    if (commandName === "init") {
+      await this.serveInitCommand(
+        sourceSessionId,
+        requestId,
+        occupiedBlankSessionIds,
+      );
+      return;
+    }
     let sessionId: string | null = sourceSessionId;
     try {
       sessionId = await this.resolveComposerSession(
@@ -1238,6 +1292,113 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * M7: /init 命令——扫描当前仓库（结构/技术栈/关键文件）生成 AGENTS.md。
+   * 已存在时先弹原生确认（覆盖/取消）；生成结果以注记节点写入对话流并打开文件。
+   */
+  private async serveInitCommand(
+    sourceSessionId: string | null,
+    requestId: number,
+    occupiedBlankSessionIds: readonly string[] = [],
+  ): Promise<void> {
+    let sessionId: string;
+    try {
+      sessionId = await this.resolveComposerSession(
+        sourceSessionId,
+        occupiedBlankSessionIds,
+      );
+    } catch (error) {
+      this.post({
+        type: "composerOperation",
+        sourceSessionId,
+        sessionId: null,
+        requestId,
+        operation: "command",
+        status: "failed",
+        text: String(error),
+      });
+      return;
+    }
+    const workspace = this.sessions.currentWorkspace;
+    if (!workspace) {
+      this.post({
+        type: "composerOperation",
+        sourceSessionId,
+        sessionId,
+        requestId,
+        operation: "command",
+        status: "failed",
+        text: "尚未打开文件夹，无法执行 /init",
+      });
+      return;
+    }
+    const target = join(workspace.path, "AGENTS.md");
+    try {
+      try {
+        await access(target);
+        const choice = await vscode.window.showWarningMessage(
+          "AGENTS.md 已存在，是否覆盖？",
+          { modal: true },
+          "覆盖",
+          "取消",
+        );
+        if (choice !== "覆盖") {
+          this.post({
+            type: "commandNotice",
+            sessionId: sourceSessionId,
+            level: "info",
+            text: "已取消 /init",
+          });
+          return; // 用户取消：草稿保留，不结算
+        }
+      } catch {
+        // 文件不存在：直接生成。
+      }
+      const result = await this.initCommand.generate({
+        root: workspace.path,
+        readFile: (path) => readFile(path, "utf8"),
+        readdir: (path) => readdir(path),
+        stat: async (path) => {
+          const entry = await stat(path);
+          return { isDirectory: entry.isDirectory() };
+        },
+      });
+      await writeFile(target, result.content, "utf8");
+      if (sourceSessionId === null) {
+        // 未绑定发送的 /init：绑定并选中该空白会话（对齐 send/command 流）。
+        this._selectedSessionId = sessionId;
+        this.post({ type: "selectedSession", sessionId });
+        await this.loadConversation(sessionId);
+        this.verifyBaseline(sessionId);
+        await this.refreshSessions();
+        await this.refreshComposerCatalogs(sessionId);
+      }
+      this.conversations.pushNote(sessionId, `已生成 ${target} — ${result.summary}`);
+      this.post({
+        type: "composerOperation",
+        sourceSessionId,
+        sessionId,
+        requestId,
+        operation: "command",
+        status: "accepted",
+      });
+      // 打开生成的文件供用户查看（异步，不阻塞结算）。
+      void vscode.workspace
+        .openTextDocument(vscode.Uri.file(target))
+        .then((document) => vscode.window.showTextDocument(document));
+    } catch (error) {
+      this.post({
+        type: "composerOperation",
+        sourceSessionId,
+        sessionId,
+        requestId,
+        operation: "command",
+        status: "failed",
+        text: `/init 失败：${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
   /** M3b: /model 选中 → session.selectModel；结果经 commandNotice 反馈。
    *  成功后重拉目录，使 /model 弹层与输入框下方席位的 current 标签同步到新选择。 */
   private async serveModelSelect(
@@ -1276,13 +1437,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.modelInFlight.add(sessionId);
     try {
       await this.commands.selectModel(sessionId, provider, model, effort);
-      await this.refreshModels(sessionId, requestId, sourceSessionId);
+      const modelsView = await this.refreshModels(
+        sessionId,
+        requestId,
+        sourceSessionId,
+      );
+      // M7: 模型切换成功 → 顶部一行小字提示（消息流顶端，仅保留最近一次；webview 裁决）。
+      const name =
+        modelsView?.groups
+          .flatMap((group) =>
+            group.models.map((entry) => ({ groupId: group.id, entry })),
+          )
+          .find((row) => row.groupId === provider && row.entry.id === model)
+          ?.entry.name ?? model;
       this.post({
-        type: "commandNotice",
+        type: "modelSwitched",
         sessionId: sourceSessionId,
-        level: "info",
-        text: `已选择模型 ${provider}/${model}`,
+        label: `已切换至 ${name}`,
       });
+      // M7: 2.1——切换提示只在消息流顶部呈现（modelSwitched），输入框下方不再出现切换提示。
       this.post({
         type: "composerOperation",
         sourceSessionId,
@@ -1312,12 +1485,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** M3b+: 刷新模型目录（/model 弹层 + 输入框下方席位共享）；失败上送带 error 的空视图。 */
+  /** M3b+: 刷新模型目录（/model 弹层 + 输入框下方席位共享）；失败上送带 error 的空视图。
+   *  M7: 返回解析后的视图（调用方据其取模型显示名）。 */
   private async refreshModels(
     sessionId: string,
     requestId = 0,
     responseSessionId: string | null = sessionId,
-  ): Promise<void> {
+  ): Promise<import("../shared/protocol.ts").SessionModelsView | null> {
     try {
       const models = await this.commands.models(sessionId);
       this.post({
@@ -1326,6 +1500,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         requestId,
         models,
       });
+      return models;
     } catch (error) {
       this.post({ type: "notice", text: String(error) });
       this.post({
@@ -1340,6 +1515,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           error: String(error),
         },
       });
+      return null;
     }
   }
 
@@ -1559,6 +1735,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const data = await this.settings.loadPanel();
       // 面板 join 成功即同步偏好缓存（composer 的 busy-enter 解析用）。
       this.busyEnter = data.busyEnter?.currentValue ?? "queue";
+      // M7: idle 态跟随最新探测到的 dsh 版本；checking/latest/update/error 由检查流程持有。
+      const update: UpdateCheckView =
+        this.updateView.state === "idle"
+          ? { ...this.updateView, currentVersion: facts.reportedVersion ?? "" }
+          : this.updateView;
       this.post({
         type: "settings",
         panel: {
@@ -1570,6 +1751,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           location,
           settingsYamlPath: facts.settingsYamlPath,
           extensionVersion: facts.extensionVersion,
+          extensionPrefs: {
+            waitingLines: this.prefs.waitingLines(),
+            autoCheckUpdates: vscode.workspace
+              .getConfiguration("weinibuliu.dsh-vsc")
+              .get<boolean>("autoCheckUpdates", false),
+          },
+          update,
         },
       });
     } catch (error) {
@@ -1592,6 +1780,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           namespaces: {},
           credentials: {},
           protocols: [],
+          cards: [],
+          extensionPrefs: {
+            waitingLines: this.prefs.waitingLines(),
+            autoCheckUpdates: vscode.workspace
+              .getConfiguration("weinibuliu.dsh-vsc")
+              .get<boolean>("autoCheckUpdates", false),
+          },
+          update: { ...this.updateView, currentVersion: facts.reportedVersion ?? "" },
         },
       });
     }
@@ -1769,6 +1965,233 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         `打开文件失败: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  /**
+   * M7: 加载更早的会话记录（无限滚动）。成功 → 推送新快照；失败 → 状态栏提示 +
+   * 推送当前快照（webview 据此收起顶部加载指示器）。
+   */
+  private async serveLoadOlder(sessionId: string): Promise<void> {
+    try {
+      const snapshot = await this.conversations.loadOlder(sessionId);
+      if (this._selectedSessionId !== sessionId) return;
+      this.post({ type: "conversation", sessionId, snapshot });
+    } catch (error) {
+      this.post({ type: "notice", text: String(error) });
+      if (this._selectedSessionId === sessionId) {
+        const snapshot = this.conversations.snapshot(sessionId);
+        if (snapshot) this.post({ type: "conversation", sessionId, snapshot });
+      }
+    }
+  }
+
+  /**
+   * M7: Fork 会话——session.fork 以该消息 seq 为锚（含该消息整轮），新会话继承
+   * 上下文与标题血统；成功后选中新会话并让 webview 把该消息文本填入新输入框。
+   */
+  private async serveForkSession(
+    sourceSessionId: string,
+    seq: number,
+    text: string,
+  ): Promise<void> {
+    try {
+      const { sessionId } = await this.sessions.forkSession(
+        sourceSessionId,
+        seq,
+      );
+      const navigationId = ++this.navigationId;
+      this._selectedSessionId = sessionId;
+      this.post({ type: "selectedSession", sessionId, navigationId });
+      await this.loadConversation(sessionId);
+      this.verifyBaseline(sessionId);
+      await this.refreshSessions();
+      await this.refreshComposerCatalogs(sessionId, navigationId);
+      await this.refreshAgentPresets(sessionId, navigationId);
+      this.post({ type: "forkAccepted", sourceSessionId, sessionId, text });
+    } catch (error) {
+      this.post({
+        type: "forkFailed",
+        sourceSessionId,
+        text: `Fork 失败：${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  /** M7: 通用 settings 卡片字段写操作（settings.mutate path ops）。 */
+  private async serveSettingsMutate(
+    id: number,
+    request: SettingsMutateRequest,
+  ): Promise<void> {
+    try {
+      const result = await this.settings.mutateField(request);
+      if (!result.ok) {
+        this.post({
+          type: "settingsReply",
+          id,
+          ok: false,
+          text: result.text,
+          ...(result.conflict === true ? { conflict: true } : {}),
+        });
+        if (result.conflict === true) void this.refreshSettings();
+        return;
+      }
+      this.post({ type: "settingsReply", id, ok: true });
+      void this.refreshSettings();
+    } catch (error) {
+      this.post({ type: "settingsReply", id, ok: false, text: String(error) });
+    }
+  }
+
+  /** M7: 保存轮播词库 → 推送新 prefs + 刷新面板。 */
+  private async serveSetWaitingLines(lines: string[]): Promise<void> {
+    try {
+      const cleaned = await this.prefs.setWaitingLines(lines);
+      this.postPrefs();
+      void this.refreshSettings();
+      this.post({ type: "notice", text: `已保存 ${cleaned.length} 条等待文案` });
+    } catch (error) {
+      this.post({ type: "notice", text: String(error) });
+    }
+  }
+
+  /**
+   * 自动附带（origin/main）：把启用文件折叠成消息前的 @ 引用行（与用户手 @ 的
+   * 引用同机制——dsh 侧按其 cwd 解析）。每个文件经基准计算取相对/绝对路径，
+   * 失败回退绝对路径（路径永在）；与用户文本中已有的引用去重（同一 token 不重复注入）。
+   */
+  private async foldAttachments(
+    text: string,
+    sessionId: string,
+    attachments?: string[],
+  ): Promise<string> {
+    const list = attachments ?? [];
+    if (list.length === 0) return text;
+    const refs: string[] = [];
+    const seen = new Set<string>();
+    for (const absolutePath of list) {
+      let ref = `@${absolutePath}`;
+      try {
+        const result = await this.atRef.buildReference(
+          { absolutePath, relativePath: "", pinned: false, dirty: false },
+          sessionId,
+        );
+        ref = `@${result.path}`;
+      } catch {
+        // 无工作区 / 基准计算失败：绝对路径兜底。
+      }
+      if (seen.has(ref) || text.includes(ref)) continue;
+      seen.add(ref);
+      refs.push(ref);
+    }
+    if (refs.length === 0) return text;
+    return `${refs.join("\n")}\n\n${text}`;
+  }
+
+  /**
+   * 自动附带（origin/main）：上送当前活动编辑器文件（composer 下方文件条数据源）。
+   * 无编辑器 → null（webview 隐藏文件条）；由 extension.ts 的活动编辑器 /
+   * 工作区目录变化监听与 hydrate 调用。
+   */
+  postActiveFile(): void {
+    const file = this.atRef.activeFile();
+    if (!file) {
+      this.post({ type: "activeFile", file: null });
+      return;
+    }
+    const view: ActiveFileView = {
+      absolutePath: file.absolutePath,
+      relativePath: file.relativePath,
+      dirty: file.dirty,
+    };
+    this.post({ type: "activeFile", file: view });
+  }
+
+  /** M7: 手动检查 dsh 更新（npm registry latest → settingsReply.value）。 */
+  private async serveCheckUpdate(id: number): Promise<void> {
+    this.updateView = { ...this.updateView, state: "checking" };
+    void this.refreshSettings();
+    try {
+      const latest = await this.settings.checkLatestDshVersion();
+      const current = this.dshFacts().reportedVersion ?? "";
+      this.updateView =
+        current !== "" && compareVersions(latest, current) > 0
+          ? { currentVersion: current, latestVersion: latest, state: "update" }
+          : { currentVersion: current, latestVersion: latest, state: "latest" };
+      this.post({
+        type: "settingsReply",
+        id,
+        ok: true,
+        value: this.updateView,
+      });
+    } catch (error) {
+      this.updateView = {
+        currentVersion: this.dshFacts().reportedVersion ?? "",
+        error: error instanceof Error ? error.message : String(error),
+        state: "error",
+      };
+      this.post({ type: "settingsReply", id, ok: false, text: this.updateView.error ?? "检查失败" });
+    }
+    void this.refreshSettings();
+  }
+
+  /** M7: 自动检查更新开关 → 写 VS Code 配置（Global，跨窗口生效）。 */
+  private async serveSetAutoCheckUpdates(enabled: boolean): Promise<void> {
+    try {
+      await vscode.workspace
+        .getConfiguration("weinibuliu.dsh-vsc")
+        .update("autoCheckUpdates", enabled, vscode.ConfigurationTarget.Global);
+      this.postPrefs();
+      void this.refreshSettings();
+    } catch (error) {
+      this.post({ type: "notice", text: String(error) });
+    }
+  }
+
+  /** M7: 启动时自动检查更新（autoCheckUpdates 开启时由 extension.ts 在 ready 后调用）。 */
+  async runAutoUpdateCheck(): Promise<void> {
+    if (this.updateView.state === "checking") return;
+    const current = this.dshFacts().reportedVersion ?? "";
+    this.updateView = { currentVersion: current, state: "checking" };
+    void this.refreshSettings();
+    try {
+      const latest = await this.settings.checkLatestDshVersion();
+      this.updateView =
+        current !== "" && compareVersions(latest, current) > 0
+          ? { currentVersion: current, latestVersion: latest, state: "update" }
+          : { currentVersion: current, latestVersion: latest, state: "latest" };
+      if (this.updateView.state === "update") {
+        void vscode.window.showInformationMessage(
+          `dsh 有新版本可用 v${latest}（当前 ${current || "未知"}）——运行 npm i -g @deepseek-ai/dsh 或在设置页选择新的 dsh 路径`,
+        );
+      }
+    } catch (error) {
+      this.updateView = {
+        currentVersion: current,
+        state: "error",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    void this.refreshSettings();
+  }
+
+  /** M7: 推送扩展偏好（轮播词库 + 自动检查开关）。 */
+  private postPrefs(): void {
+    const prefs: ExtensionPrefsView = {
+      waitingLines: this.prefs.waitingLines(),
+      autoCheckUpdates: vscode.workspace
+        .getConfiguration("weinibuliu.dsh-vsc")
+        .get<boolean>("autoCheckUpdates", false),
+    };
+    this.post({ type: "extensionPrefs", prefs });
+  }
+
+  /** M7: 进行中的会话计数（并行上限判定用）。 */
+  private countRunningSessions(): number {
+    let count = 0;
+    for (const activity of this.activities.values()) {
+      if (activity.running) count += 1;
+    }
+    return count;
   }
 
   private renderHtml(webview: vscode.Webview): string {

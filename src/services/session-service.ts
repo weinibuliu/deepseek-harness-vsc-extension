@@ -157,7 +157,11 @@ export class SessionService {
     });
   }
 
-  /** Archive a session into the registry-global set; returns the full updated set. */
+  /**
+   * M7: 归档一条会话。rc7 的 wire 没有 session.delete RPC——后端存储同步的归档面
+   * 就是 workspace.archiveSession（会话从所有分组表面消失、注册表持久化；日志保留）。
+   * 契约跟随：UI 语义统一为「归档」（历史面板按钮 / 行内菜单 / 确认弹窗共用此面）。
+   */
   async archiveSession(sessionId: string): Promise<readonly string[]> {
     const client = this.requireClient();
     const { archivedSessionIds } = await client.call<{
@@ -165,6 +169,22 @@ export class SessionService {
     }>("workspace.archiveSession", { sessionId });
     this.archivedSessionIds = archivedSessionIds;
     return archivedSessionIds;
+  }
+
+  /**
+   * M7: 从源会话的某条用户消息处 Fork 一条新会话。`atSeq` 锚定切点（该消息的 seq；
+   * host 取 atSeq 及之后第一个 turn/end 为边界，即包含该消息所在的整轮）。
+   * 子会话继承源 cwd、最新模型与 parentSessionId 血统；种子前缀携带源标题。
+   */
+  async forkSession(
+    sessionId: string,
+    atSeq: number,
+  ): Promise<{ sessionId: string }> {
+    const client = this.requireClient();
+    return await client.call<{ sessionId: string }>("session.fork", {
+      sessionId,
+      atSeq,
+    });
   }
 
   /** Rename a session (host normalizes the raw title); returns the accepted title. */

@@ -100,13 +100,13 @@ export function GeneralSettings({ panel, wire }: GeneralSettingsProps) {
 
       {permission !== undefined && (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+            <span className="min-w-0 flex-1">
               <span className="block text-sm">默认权限模式</span>
               <span className="block text-xs text-description">选择新会话的默认权限模式</span>
             </span>
             <select
-              className="max-w-[180px] flex-none rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
+              className="max-w-[180px] flex-none min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
               value={pending ?? permission.currentValue}
               disabled={readOnly || saving}
               aria-label="默认权限模式"
@@ -125,13 +125,13 @@ export function GeneralSettings({ panel, wire }: GeneralSettingsProps) {
 
       {busyEnter !== undefined && (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+            <span className="min-w-0 flex-1">
               <span className="block text-sm">繁忙时 Enter 键行为</span>
               <span className="block text-xs text-description">仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为</span>
             </span>
             <select
-              className="max-w-[180px] flex-none rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
+              className="max-w-[180px] flex-none min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground"
               value={busyEnter.currentValue}
               disabled={readOnly || !busyEnter.writable || busyEnterSaving}
               aria-label="繁忙时 Enter 键行为"

@@ -135,7 +135,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
             && row.credential?.configured === false
           return (
             <li key={row.provider} className="mb-2 rounded-xs border border-border-panel p-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="truncate text-sm">{row.displayName}</span>
                   {row.declared === true ? <span className="text-xs text-description">自定义</span> : null}

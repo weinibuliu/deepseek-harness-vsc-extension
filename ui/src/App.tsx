@@ -17,6 +17,7 @@ import type {
   ComposerSubmitGesture,
   ConversationSnapshot,
   DiscoveredModelView,
+  ExtensionPrefsView,
   ExtensionToWebviewMessage,
   PendingAnswer,
   PendingItemView,
@@ -27,6 +28,7 @@ import type {
   SettingsPanelView,
   SkillsSnapshot,
   TodoItem,
+  UpdateCheckView,
   UsageStatsView,
   WebviewToExtensionMessage,
   WorkspaceView,
@@ -88,14 +90,8 @@ export default function App() {
   const [modelsBySession, setModelsBySession] = useState<Record<string, SessionModelsView | null>>({})
   const [noticesBySession, setNoticesBySession] = useState<Record<string, Notice[]>>({})
   const [operationsBySession, setOperationsBySession] = useState<Record<string, OperationState | null>>({})
-  // 历史分页：「加载更早」请求进行中（任何 conversation 快照到达即复位）。
-  const [loadingOlderBySession, setLoadingOlderBySession] = useState<Record<string, boolean>>({})
-  // 历史分页：「加载更早」失败反馈（会话内联展示；下一次请求前清除）。
-  const [loadOlderErrors, setLoadOlderErrors] = useState<Record<string, string>>({})
   const [commitSeqBySession, setCommitSeqBySession] = useState<Record<string, number>>({})
   const [activityBySession, setActivityBySession] = useState<Record<string, SessionActivityView>>({})
-  const [readEndSeq, setReadEndSeq] = useState<Record<string, number>>({})
-  const [readErrorSeq, setReadErrorSeq] = useState<Record<string, number>>({})
   // M4: 每会话 pending 交互（审批 / ask-user / plan-review；空 = 无阻塞，composer 正常）。
   const [pendingBySession, setPendingBySession] = useState<Record<string, PendingItemView[]>>({})
   // M4: 卡片内联错误（respond 失败：not-pending/bad-response/传输）。
@@ -107,27 +103,30 @@ export default function App() {
   const [agentPresetsBySession, setAgentPresetsBySession] = useState<Record<string, AgentPresetSelectView | null>>({})
   // 用量统计 chip + modal（token/时间/context 四投影组合；null = 全缺席 → chip 隐藏）。
   const [statsBySession, setStatsBySession] = useState<Record<string, UsageStatsView | null>>({})
+  // M7: 每 composer 槽位的模型切换提示（消息流最顶端一行小字；仅保留最近一次）。
+  const [modelSwitchBySession, setModelSwitchBySession] = useState<Record<string, string>>({})
+  // M7: 扩展自身偏好（轮播词库等；hydrate/变更推送）。
+  const [extensionPrefs, setExtensionPrefs] = useState<ExtensionPrefsView>({ waitingLines: [], autoCheckUpdates: false })
+  // 自动附带（origin/main）：当前活动编辑器文件（composer 下方文件条；null = 无编辑器隐藏）。
+  const [activeFile, setActiveFile] = useState<ActiveFileView | null>(null)
+  // 自动附带（origin/main）：每 composer 槽的眼睛开关（缺席 = 启用）。活动文件变化时整体重置
+  // （新文件默认启用）；用户停用只影响当前会话的输入。
+  const [activeFileEnabledByKey, setActiveFileEnabledByKey] = useState<Record<string, boolean>>({})
+  const lastActiveFilePath = useRef<string | null>(null)
+  // 权限席位切换的 requestId 集合（origin/main）：这些 `/permission <preset>` 执行在结算时
+  // 不递增 commitSeq（不消费草稿）。结算（accepted/failed）时取走，杜绝泄漏。
+  const keepDraftRequestIds = useRef(new Set<number>())
   // M6: 设置面板视图切换 + 面板数据 + settingsReply 应答关联。
   const [view, setView] = useState<'chat' | 'settings'>('chat')
   // 无可用 Provider 引导页的「稍后配置」暂离标记；仅在真正的重开（boot/终态）时重置，
   // 使引导页「每次重开再现」而不在瞬态 reconnecting 上反复弹出。
   const [gateDismissed, setGateDismissed] = useState(false)
-  const [webviewVisible, setWebviewVisible] = useState(document.visibilityState === 'visible')
   const [settingsPanel, setSettingsPanel] = useState<SettingsPanelView | null>(null)
-  // 自动附带：当前活动编辑器文件（composer 下方文件条；null = 无编辑器隐藏）。
-  const [activeFile, setActiveFile] = useState<ActiveFileView | null>(null)
-  // 自动附带：每 composer 槽的眼睛开关（缺席 = 启用）。活动文件变化时整体重置
-  // （新文件默认启用）；用户停用只影响当前会话的输入。
-  const [activeFileEnabledByKey, setActiveFileEnabledByKey] = useState<Record<string, boolean>>({})
-  const lastActiveFilePath = useRef<string | null>(null)
   const replySeq = useRef(0)
   const requestSeq = useRef(0)
   const navigationSeq = useRef(0)
   const latestApplied = useRef(new Map<string, number>())
   const replyResolvers = useRef(new Map<number, (reply: SettingsReply) => void>())
-  // 权限席位切换的 requestId 集合：这些 `/permission <preset>` 执行在结算时不
-  // 递增 commitSeq（不消费草稿）。结算（accepted/failed）时取走，杜绝泄漏。
-  const keepDraftRequestIds = useRef(new Set<number>())
 
   useEffect(() => {
     const accept = (kind: string, sessionId: string | null, requestId: number): boolean => {
@@ -151,7 +150,7 @@ export default function App() {
           setWorkspace(message.workspace)
           break
         case 'activeFile': {
-          // 自动附带：活动文件变化 → 眼睛开关整体重置（新文件默认启用）。
+          // 自动附带（origin/main）：活动文件变化 → 眼睛开关整体重置（新文件默认启用）。
           const path = message.file?.absolutePath ?? null
           if (path !== lastActiveFilePath.current) {
             lastActiveFilePath.current = path
@@ -177,12 +176,6 @@ export default function App() {
           break
         case 'conversation':
           setConversations((prev) => ({ ...prev, [message.sessionId]: message.snapshot }))
-          // 任何快照到达都结算该会话的「加载更早」请求（成功翻页与流式更新皆可）。
-          setLoadingOlderBySession((prev) => (prev[message.sessionId] ? { ...prev, [message.sessionId]: false } : prev))
-          break
-        case 'loadOlderError':
-          setLoadingOlderBySession((prev) => ({ ...prev, [message.sessionId]: false }))
-          setLoadOlderErrors((prev) => ({ ...prev, [message.sessionId]: message.text }))
           break
         case 'atCandidates':
           if (!accept('atCandidates', message.sessionId, message.requestId)) break
@@ -214,17 +207,19 @@ export default function App() {
         }
         case 'composerOperation': {
           const key = composerKey(message.sourceSessionId)
-          // 权限席位切换：选中即提交，但保留草稿（不递增 commitSeq 清空输入框）。
-          const keepDraft = keepDraftRequestIds.current.delete(message.requestId)
           setOperationsBySession((prev) => {
             if (prev[key]?.requestId !== message.requestId) return prev
             return { ...prev, [key]: null }
           })
           if (message.status === 'accepted') {
-            if (!keepDraft) {
+            // M7: 模型切换不清空草稿（2.2 保留输入与光标）——仅 send/command 结算清空；
+            // origin/main: 权限席位切换标记 keepDraft 的命令同样不消费草稿。
+            const keepDraft = keepDraftRequestIds.current.delete(message.requestId)
+            if (!keepDraft && (message.operation === 'send' || message.operation === 'command')) {
               setCommitSeqBySession((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }))
             }
           } else if (message.text) {
+            keepDraftRequestIds.current.delete(message.requestId)
             setNoticesBySession((prev) => ({
               ...prev,
               [key]: [...(prev[key] ?? []).slice(-4), { level: 'error', text: message.text as string, id: Date.now() }],
@@ -246,16 +241,14 @@ export default function App() {
           setModelsBySession((prev) => omitKey(prev, key))
           setNoticesBySession((prev) => omitKey(prev, key))
           setOperationsBySession((prev) => omitKey(prev, key))
-          setLoadingOlderBySession((prev) => omitKey(prev, key))
-          setLoadOlderErrors((prev) => omitKey(prev, key))
           setCommitSeqBySession((prev) => omitKey(prev, key))
           setActivityBySession((prev) => omitKey(prev, key))
-          setReadEndSeq((prev) => omitKey(prev, key))
-          setReadErrorSeq((prev) => omitKey(prev, key))
           setPermissionsBySession((prev) => omitKey(prev, key))
           setAgentPresetsBySession((prev) => omitKey(prev, key))
           setStatsBySession((prev) => omitKey(prev, key))
+          setModelSwitchBySession((prev) => omitKey(prev, key))
           setActiveFileEnabledByKey((prev) => omitKey(prev, key))
+          setConversations((prev) => omitKey(prev, message.sessionId))
           break
         }
         case 'pending':
@@ -289,6 +282,25 @@ export default function App() {
         case 'stats':
           setStatsBySession((prev) => ({ ...prev, [message.sessionId]: message.stats }))
           break
+        case 'modelSwitched':
+          // M7: 顶部切换提示仅保留最近一次（同槽位覆盖）。
+          setModelSwitchBySession((prev) => ({ ...prev, [composerKey(message.sessionId)]: message.label }))
+          break
+        case 'extensionPrefs':
+          setExtensionPrefs(message.prefs)
+          break
+        case 'forkAccepted': {
+          const key = composerKey(message.sessionId)
+          setComposerKeys((prev) => prev.includes(key) ? prev : [...prev, key])
+          setDrafts((prev) => ({ ...prev, [key]: message.text }))
+          break
+        }
+        case 'forkFailed':
+          setNoticesBySession((prev) => {
+            const key = composerKey(message.sourceSessionId)
+            return { ...prev, [key]: [...(prev[key] ?? []).slice(-4), { level: 'error', text: message.text, id: Date.now() }] }
+          })
+          break
         case 'settings':
           setSettingsPanel(message.panel)
           break
@@ -307,12 +319,6 @@ export default function App() {
     window.addEventListener('message', onMessage)
     vscode.postMessage({ type: 'ready' })
     return () => window.removeEventListener('message', onMessage)
-  }, [])
-
-  useEffect(() => {
-    const onVisibility = (): void => setWebviewVisible(document.visibilityState === 'visible')
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
 
   // 引导页暂离标记在真正的重开边界（boot/终态）重置；reconnecting/ready 不重置。
@@ -349,6 +355,14 @@ export default function App() {
       requestReply((id) => post({ type: 'settingsSelectPermissionDefault', id, preset, expectedRevision })),
     selectBusyEnter: (behavior, expectedRevision) =>
       requestReply((id) => post({ type: 'settingsSelectBusyEnter', id, behavior, expectedRevision })),
+    mutateField: (request) => requestReply((id) => post({ type: 'settingsMutate', id, request })),
+    setWaitingLines: (lines) => post({ type: 'settingsSetWaitingLines', lines }),
+    checkUpdate: async () => {
+      const reply = await requestReply((id) => post({ type: 'settingsCheckUpdate', id }))
+      if (!reply.ok) throw new Error(reply.text)
+      return (reply.value ?? null) as UpdateCheckView | null
+    },
+    setAutoCheckUpdates: (enabled) => post({ type: 'settingsSetAutoCheckUpdates', enabled }),
     openSettingsYaml: () => post({ type: 'openSettingsYaml' }),
     openExtensionSettings: () => post({ type: 'openExtensionSettings' }),
     refresh: () => post({ type: 'settingsRefresh' }),
@@ -393,17 +407,11 @@ export default function App() {
     post({ type: 'renameSession', sessionId, currentTitle })
   }, [post])
 
-  // 历史分页：请求加载所选会话更早的记录（扩展侧 session.history 向前翻页）。
-  const handleLoadOlder = useCallback((sessionId: string): void => {
-    setLoadOlderErrors((prev) => omitKey(prev, sessionId))
-    setLoadingOlderBySession((prev) => ({ ...prev, [sessionId]: true }))
-    post({ type: 'loadOlder', sessionId })
-  }, [post])
-
   const handleSend = useCallback((
     sessionId: string | null,
     text: string,
     gesture: ComposerSubmitGesture,
+    // 自动附带（origin/main）：眼睛启用的活动文件绝对路径（扩展侧折叠成 @ 引用）。
     attachments: string[] = [],
   ): void => {
     const key = composerKey(sessionId)
@@ -418,6 +426,29 @@ export default function App() {
 
   const handleCancel = useCallback((sessionId: string): void => {
     post({ type: 'cancel', sessionId })
+  }, [post])
+
+  // 权限席位切换（origin/main）：选中即提交 `/permission <preset>`，但标记 keepDraft
+  // ——结算时不消费输入框草稿（与 /permission 弹出层消费 `/permission` token 区别开）。
+  const handlePermissionSeatSelect = useCallback((sessionId: string | null, preset: string): void => {
+    const key = composerKey(sessionId)
+    const requestId = ++requestSeq.current
+    setOperationsBySession((prev) => ({ ...prev, [key]: { requestId, kind: 'command' } }))
+    keepDraftRequestIds.current.add(requestId)
+    post({
+      type: 'commandExecute', sessionId, requestId, line: `/permission ${preset}`,
+      occupiedBlankSessionIds: occupiedBlankSessionIds(),
+    })
+  }, [occupiedBlankSessionIds, post])
+
+  // M7: 无限滚动——接近顶部时加载更早的对话记录（扩展侧裁决去重）。
+  const handleLoadOlder = useCallback((sessionId: string): void => {
+    post({ type: 'loadOlder', sessionId })
+  }, [post])
+
+  // M7: Fork 会话——该消息为分叉锚点，文本自动填入新会话输入框。
+  const handleFork = useCallback((sessionId: string, seq: number, text: string): void => {
+    post({ type: 'forkSession', sessionId, seq, text })
   }, [post])
 
   // M5b: 对话流文件链接点击 → 扩展侧在当前窗口打开对应文件。
@@ -464,20 +495,6 @@ export default function App() {
 
   // M3b: 命令目录未知时（/ 行 Enter）保持草稿并重拉目录（不静默降级）。
   const handleCommandRetry = handleCommandOpen
-
-  // 权限席位（输入框下方常驻）切换档位：同样走 `/permission <preset>` 命令，但
-  // 标记 keepDraft —— 结算时不清空输入框（用户正在输入的草稿与权限切换无关）。
-  // 与 /permission 弹出层（消费输入框里的 `/permission` token）区别开。
-  const handlePermissionSeatSelect = useCallback((sessionId: string | null, preset: string): void => {
-    const key = composerKey(sessionId)
-    const requestId = ++requestSeq.current
-    setOperationsBySession((prev) => ({ ...prev, [key]: { requestId, kind: 'command' } }))
-    keepDraftRequestIds.current.add(requestId)
-    post({
-      type: 'commandExecute', sessionId, requestId, line: `/permission ${preset}`,
-      occupiedBlankSessionIds: occupiedBlankSessionIds(),
-    })
-  }, [occupiedBlankSessionIds, post])
 
   // M3b: /model 弹出层打开 / 选中。
   const handleModelOpen = useCallback((sessionId: string | null): void => {
@@ -544,17 +561,6 @@ export default function App() {
       .map(([key, value]) => [key.slice(selectedSessionId.length + 1), value]))
     : {}
 
-  useEffect(() => {
-    if (!selectedSessionId || view !== 'chat' || !webviewVisible || !selected) return
-    const activity = activityBySession[selectedSessionId]
-    if (activity?.ended && selected.lastSeq >= activity.ended.seq) {
-      setReadEndSeq((prev) => ({ ...prev, [selectedSessionId]: activity.ended?.seq ?? prev[selectedSessionId] ?? -1 }))
-    }
-    if (activity?.failedSeq !== undefined) {
-      setReadErrorSeq((prev) => ({ ...prev, [selectedSessionId]: activity.failedSeq ?? prev[selectedSessionId] ?? -1 }))
-    }
-  }, [activityBySession, selected, selectedSessionId, view, webviewVisible])
-
   // 启动门：dsh 未 ready（discovering/starting）整页 loading；终态失败（error/stopped）整页「关于」gate。
   if (serviceStatus.status === 'discovering' || serviceStatus.status === 'starting') {
     return <LoadingPage status={serviceStatus.status} detail={serviceStatus.detail} />
@@ -606,8 +612,6 @@ export default function App() {
           workspace={workspace}
           sessions={sessions}
           activities={activityBySession}
-          readEndSeq={readEndSeq}
-          readErrorSeq={readErrorSeq}
           selectedSessionId={selectedSessionId}
           onNewSession={handleNewSession}
           onRefresh={() => post({ type: 'refresh' })}
@@ -617,17 +621,22 @@ export default function App() {
           onRenameSession={handleRenameSession}
         />
         <ChatArea
+          sessionId={selectedSessionId}
           items={selected?.items ?? []}
           running={selectedRunning}
-          sessionId={selectedSessionId}
-          hasMore={selected?.hasMore === true}
-          loadingOlder={selectedSessionId ? (loadingOlderBySession[selectedSessionId] ?? false) : false}
-          loadOlderError={selectedSessionId ? (loadOlderErrors[selectedSessionId] ?? null) : null}
-          onLoadOlder={selectedSessionId ? () => handleLoadOlder(selectedSessionId) : undefined}
+          hasMore={selected?.hasMore ?? false}
+          waitingLines={extensionPrefs.waitingLines}
+          modelSwitchNotice={
+            selectedSessionId === null
+              ? modelSwitchBySession[UNBOUND_COMPOSER] ?? null
+              : modelSwitchBySession[selectedSessionId] ?? null
+          }
           workspacePath={workspace?.path}
           onOpenFile={handleOpenFile}
           onOpenExternalUrl={handleOpenExternalUrl}
           fileMentions={fileMentions}
+          onLoadOlder={() => selectedSessionId && handleLoadOlder(selectedSessionId)}
+          onFork={handleFork}
         />
       </div>
       {pendingBlocked ? (
@@ -670,16 +679,17 @@ export default function App() {
               commitSeq={commitSeqBySession[key] ?? 0}
               onSend={(text, gesture, attachments) => handleSend(sessionId, text, gesture, attachments)}
               onCancel={() => sessionId && handleCancel(sessionId)}
-              onAtOpen={() => handleAtOpen(sessionId)}
-              onAtResolve={(ref) => handleAtResolve(sessionId, ref)}
-              atCandidates={atCandidatesBySession[key] ?? null}
-              atInsert={atInsertBySession[key] ?? null}
-              onAtInsertConsumed={() => setAtInsertBySession((prev) => ({ ...prev, [key]: null }))}
+              // 自动附带（origin/main）：活动编辑器文件条 + 每槽眼睛开关。
               activeFile={activeFile}
               activeFileEnabled={activeFileEnabledByKey[key] ?? true}
               onActiveFileToggle={(enabled) =>
                 setActiveFileEnabledByKey((prev) => ({ ...prev, [key]: enabled }))
               }
+              onAtOpen={() => handleAtOpen(sessionId)}
+              onAtResolve={(ref) => handleAtResolve(sessionId, ref)}
+              atCandidates={atCandidatesBySession[key] ?? null}
+              atInsert={atInsertBySession[key] ?? null}
+              onAtInsertConsumed={() => setAtInsertBySession((prev) => ({ ...prev, [key]: null }))}
               commands={commandsBySession[key] ?? null}
               skills={skillsBySession[key] ?? null}
               onCommandOpen={() => handleCommandOpen(sessionId)}
