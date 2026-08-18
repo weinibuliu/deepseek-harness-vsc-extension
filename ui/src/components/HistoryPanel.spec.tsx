@@ -37,6 +37,8 @@ function renderPanel(overrides: Partial<Parameters<typeof HistoryPanel>[0]> = {}
   const onOpen = vi.fn()
   const onSelectSession = vi.fn()
   const onDeleteSession = vi.fn()
+  const onArchiveSession = vi.fn()
+  const onRenameSession = vi.fn()
   const view = render(
     <HistoryPanel
       open
@@ -47,10 +49,12 @@ function renderPanel(overrides: Partial<Parameters<typeof HistoryPanel>[0]> = {}
       onClose={onClose}
       onSelectSession={onSelectSession}
       onDeleteSession={onDeleteSession}
+      onArchiveSession={onArchiveSession}
+      onRenameSession={onRenameSession}
       {...overrides}
     />,
   )
-  return { view, onClose, onOpen, onSelectSession, onDeleteSession }
+  return { view, onClose, onOpen, onSelectSession, onDeleteSession, onArchiveSession, onRenameSession }
 }
 
 afterEach(() => {
@@ -124,5 +128,17 @@ describe('HistoryPanel', () => {
 
     expect(view.getByRole('button', { name: '对话历史' })).toBeTruthy()
     expect(view.queryByText('整理需求')).toBeNull()
+  })
+
+  it('row 「…」 menu offers rename and archive', () => {
+    const { view, onRenameSession, onArchiveSession } = renderPanel()
+
+    fireEvent.click(view.getAllByRole('button', { name: '更多操作' })[0]!)
+    fireEvent.click(view.getByText('重命名'))
+    expect(onRenameSession).toHaveBeenCalledWith('s-aaa', '整理需求')
+
+    fireEvent.click(view.getAllByRole('button', { name: '更多操作' })[0]!)
+    fireEvent.click(view.getByText('归档'))
+    expect(onArchiveSession).toHaveBeenCalledWith('s-aaa')
   })
 })

@@ -92,8 +92,6 @@ export default function App() {
   const [operationsBySession, setOperationsBySession] = useState<Record<string, OperationState | null>>({})
   const [commitSeqBySession, setCommitSeqBySession] = useState<Record<string, number>>({})
   const [activityBySession, setActivityBySession] = useState<Record<string, SessionActivityView>>({})
-  const [readEndSeq, setReadEndSeq] = useState<Record<string, number>>({})
-  const [readErrorSeq, setReadErrorSeq] = useState<Record<string, number>>({})
   // M4: 每会话 pending 交互（审批 / ask-user / plan-review；空 = 无阻塞，composer 正常）。
   const [pendingBySession, setPendingBySession] = useState<Record<string, PendingItemView[]>>({})
   // M4: 卡片内联错误（respond 失败：not-pending/bad-response/传输）。
@@ -123,7 +121,6 @@ export default function App() {
   // 无可用 Provider 引导页的「稍后配置」暂离标记；仅在真正的重开（boot/终态）时重置，
   // 使引导页「每次重开再现」而不在瞬态 reconnecting 上反复弹出。
   const [gateDismissed, setGateDismissed] = useState(false)
-  const [webviewVisible, setWebviewVisible] = useState(document.visibilityState === 'visible')
   const [settingsPanel, setSettingsPanel] = useState<SettingsPanelView | null>(null)
   const replySeq = useRef(0)
   const requestSeq = useRef(0)
@@ -246,8 +243,6 @@ export default function App() {
           setOperationsBySession((prev) => omitKey(prev, key))
           setCommitSeqBySession((prev) => omitKey(prev, key))
           setActivityBySession((prev) => omitKey(prev, key))
-          setReadEndSeq((prev) => omitKey(prev, key))
-          setReadErrorSeq((prev) => omitKey(prev, key))
           setPermissionsBySession((prev) => omitKey(prev, key))
           setAgentPresetsBySession((prev) => omitKey(prev, key))
           setStatsBySession((prev) => omitKey(prev, key))
@@ -305,8 +300,6 @@ export default function App() {
           setOperationsBySession((prev) => omitKey(prev, key))
           setCommitSeqBySession((prev) => omitKey(prev, key))
           setActivityBySession((prev) => omitKey(prev, key))
-          setReadEndSeq((prev) => omitKey(prev, key))
-          setReadErrorSeq((prev) => omitKey(prev, key))
           setPermissionsBySession((prev) => omitKey(prev, key))
           setAgentPresetsBySession((prev) => omitKey(prev, key))
           setStatsBySession((prev) => omitKey(prev, key))
@@ -345,12 +338,6 @@ export default function App() {
     window.addEventListener('message', onMessage)
     vscode.postMessage({ type: 'ready' })
     return () => window.removeEventListener('message', onMessage)
-  }, [])
-
-  useEffect(() => {
-    const onVisibility = (): void => setWebviewVisible(document.visibilityState === 'visible')
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
 
   // 引导页暂离标记在真正的重开边界（boot/终态）重置；reconnecting/ready 不重置。
@@ -598,17 +585,6 @@ export default function App() {
       .map(([key, value]) => [key.slice(selectedSessionId.length + 1), value]))
     : {}
 
-  useEffect(() => {
-    if (!selectedSessionId || view !== 'chat' || !webviewVisible || !selected) return
-    const activity = activityBySession[selectedSessionId]
-    if (activity?.ended && selected.lastSeq >= activity.ended.seq) {
-      setReadEndSeq((prev) => ({ ...prev, [selectedSessionId]: activity.ended?.seq ?? prev[selectedSessionId] ?? -1 }))
-    }
-    if (activity?.failedSeq !== undefined) {
-      setReadErrorSeq((prev) => ({ ...prev, [selectedSessionId]: activity.failedSeq ?? prev[selectedSessionId] ?? -1 }))
-    }
-  }, [activityBySession, selected, selectedSessionId, view, webviewVisible])
-
   // 启动门：dsh 未 ready（discovering/starting）整页 loading；终态失败（error/stopped）整页「关于」gate。
   if (serviceStatus.status === 'discovering' || serviceStatus.status === 'starting') {
     return <LoadingPage status={serviceStatus.status} detail={serviceStatus.detail} />
@@ -660,8 +636,6 @@ export default function App() {
           workspace={workspace}
           sessions={sessions}
           activities={activityBySession}
-          readEndSeq={readEndSeq}
-          readErrorSeq={readErrorSeq}
           selectedSessionId={selectedSessionId}
           onNewSession={handleNewSession}
           onRefresh={() => post({ type: 'refresh' })}
