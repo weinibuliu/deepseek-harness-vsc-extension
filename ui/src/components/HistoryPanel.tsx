@@ -130,7 +130,7 @@ export function HistoryPanel({
                     {title}
                     {archivedActive ? '（已归档 · 活动中）' : ''}
                   </span>
-                  <span className="shrink-0 text-[10px] text-description">{formatTime(item.updatedAt)}</span>
+                  <span className="shrink-0 text-[10px] text-description max-[280px]:hidden">{formatTime(item.updatedAt)}</span>
                   {pending ? (
                     <span className="shrink-0 text-xs text-warning" title="等待输入">等待输入</span>
                   ) : running ? (

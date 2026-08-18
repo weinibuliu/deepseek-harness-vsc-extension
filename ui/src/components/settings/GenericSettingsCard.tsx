@@ -87,7 +87,7 @@ function FieldRow({ field, card, writable, wire }: {
   const readOnly = !writable || saving
 
   const header = (
-    <span className="min-w-0">
+    <span className="min-w-0 flex-1">
       <span className="block text-sm">{field.label}</span>
       <FieldHint description={field.description} />
     </span>
@@ -97,12 +97,12 @@ function FieldRow({ field, card, writable, wire }: {
     case 'string':
       return (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             {header}
-            <div className="flex flex-none items-center gap-1.5">
+            <div className="flex flex-none flex-wrap items-center gap-1.5">
               <input
                 type="text"
-                className="w-[180px] rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
+                className="w-44 max-w-full min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
                 value={draft}
                 disabled={readOnly}
                 aria-label={field.label}
@@ -133,12 +133,12 @@ function FieldRow({ field, card, writable, wire }: {
     case 'number':
       return (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             {header}
-            <div className="flex flex-none items-center gap-1.5">
+            <div className="flex flex-none flex-wrap items-center gap-1.5">
               <input
                 type="number"
-                className="w-[120px] rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
+                className="w-28 max-w-full min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
                 value={field.value === undefined ? '' : field.value}
                 disabled={readOnly}
                 aria-label={field.label}
@@ -166,9 +166,9 @@ function FieldRow({ field, card, writable, wire }: {
     case 'boolean':
       return (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             {header}
-            <div className="flex flex-none items-center gap-1.5">
+            <div className="flex flex-none flex-wrap items-center gap-1.5">
               <input
                 type="checkbox"
                 checked={field.value}
@@ -194,11 +194,11 @@ function FieldRow({ field, card, writable, wire }: {
     case 'enum':
       return (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             {header}
-            <div className="flex flex-none items-center gap-1.5">
+            <div className="flex flex-none flex-wrap items-center gap-1.5">
               <select
-                className="max-w-[180px] rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
+                className="max-w-[180px] min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
                 value={field.value}
                 disabled={readOnly}
                 aria-label={field.label}
@@ -226,15 +226,15 @@ function FieldRow({ field, card, writable, wire }: {
     case 'secret':
       return (
         <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             {header}
-            <div className="flex flex-none items-center gap-1.5">
+            <div className="flex flex-none flex-wrap items-center gap-1.5">
               <span className="text-xs text-description">
                 {field.set ? '已配置（留空保持不变）' : '未配置'}
               </span>
               <input
                 type="password"
-                className="w-[160px] rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
+                className="w-36 max-w-full min-w-0 rounded-xs border border-input-border bg-input-background px-2 py-1 text-xs text-input-foreground disabled:opacity-50"
                 value={draft}
                 disabled={readOnly}
                 placeholder={field.set ? '••••••' : '输入新值'}

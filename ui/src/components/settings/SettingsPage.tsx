@@ -133,7 +133,7 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
               <path d="M10.5 3.5L6 8L10.5 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <span className="text-sm">设置</span>
+          <span className="text-sm max-[220px]:hidden">设置</span>
         </div>
         <button
           type="button"

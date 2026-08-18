@@ -30,7 +30,7 @@ interface MenuState {
 }
 
 const MENU_WIDTH = 96 // w-24
-const COLLAPSED_COUNT = 3 // 收起态最多显示的会话行数
+const COLLAPSED_COUNT = 0 // M7.1: 顶部历史对话默认不显示（收起 0 行；经「显示更多」或历史面板查看）
 
 /**
  * 会话列表（Cline 风格）：细标题行 + 历史条目样式，激活项用 VS Code
@@ -101,7 +101,7 @@ export function SessionList({
   return (
     <section className="flex max-h-[40%] flex-none flex-col overflow-hidden border-b border-border-panel">
       <div className="flex flex-none items-center justify-between gap-2 px-3 py-1.5">
-        <span className="truncate text-xs text-description">{workspace?.title ?? '（未打开文件夹）'}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-description">{workspace?.title ?? '（未打开文件夹）'}</span>
         <div className="flex flex-none items-center gap-0.5">
           <button
             type="button"

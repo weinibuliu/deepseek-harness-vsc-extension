@@ -805,13 +805,22 @@ export function ChatArea({
     setShowBackToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 200)
   }, [])
 
-  // 2.8: 切换会话 → 默认定位到底部（即时，无闪烁）。
+  // 2.8: 切换会话 → 默认定位到底部（最新对话内容）。快照异步到达：会话切换先清
+  // 标记，待该会话内容渲染后再滚底；之后用户手动上翻不再被拉回。
+  const bottomedSessionRef = useRef<string | null>(null)
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
+    bottomedSessionRef.current = null
     setShowBackToBottom(false)
   }, [sessionId])
+
+  useEffect(() => {
+    if (sessionId === null || bottomedSessionRef.current === sessionId) return
+    const el = scrollRef.current
+    if (!el || items.length === 0) return
+    el.scrollTop = el.scrollHeight
+    bottomedSessionRef.current = sessionId
+    setShowBackToBottom(false)
+  }, [sessionId, items])
 
   // M7: 顶部插入更早记录 → 按高度差锚定阅读位置（加载不跳动）。
   useLayoutEffect(() => {
@@ -876,12 +885,6 @@ export function ChatArea({
             {!hasMore && !loadingOlder ? (
               <div className="pt-2.5 text-center text-xs text-description">已显示全部对话</div>
             ) : null}
-            {/* M7: 模型切换提示——消息流最顶端一行小字（2.1：12px #999 居中）。 */}
-            {modelSwitchNotice !== null ? (
-              <div style={{ fontSize: 12, color: '#999', textAlign: 'center' }} className="pt-2.5">
-                {modelSwitchNotice}
-              </div>
-            ) : null}
             {items.map((item, i) => (
               // M5b: tool/command 用稳定业务 id 做 key（折叠状态随卡保留，不被位置键错位）。
               <div
@@ -901,6 +904,12 @@ export function ChatArea({
             ))}
             {/* M7: 等待轮播打字机（2.4）——回复真正到达前取代固定 loading。 */}
             {running && !streamingText ? <TypewriterWait lines={waitingLines} /> : null}
+            {/* M7.1: 模型切换提示——当前对话最底部一行小字（12px #999 居中）。 */}
+            {modelSwitchNotice !== null ? (
+              <div style={{ fontSize: 12, color: '#999', textAlign: 'center' }} className="pt-2.5">
+                {modelSwitchNotice}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

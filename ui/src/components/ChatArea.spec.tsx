@@ -70,18 +70,40 @@ function baseProps(overrides: Partial<Parameters<typeof ChatArea>[0]> = {}): Par
 }
 
 describe('ChatArea (M7)', () => {
-  it('模型切换提示显示在消息流最顶端（12px 灰字居中）', () => {
+  it('模型切换提示显示在对话最底部（12px 灰字居中，位于消息之后）', () => {
     const props = baseProps({ items: [userItem(1, '你好')], modelSwitchNotice: '已切换至 deepseek-chat' })
     const { container } = render(<ChatArea {...props} />)
     const notice = screen.getByText('已切换至 deepseek-chat')
     expect(notice).toBeTruthy()
     expect((notice as HTMLElement).style.fontSize).toBe('12px')
-    // jsdom 将颜色归一化为 rgb() 形式；12px/#999/居中 = 需求 2.1 样式。
+    // jsdom 将颜色归一化为 rgb() 形式；12px/#999/居中 = 需求样式。
     expect((notice as HTMLElement).style.color).toBe('rgb(153, 153, 153)')
     expect((notice as HTMLElement).style.textAlign).toBe('center')
-    // 位于所有消息之前：notice 节点在消息节点之前。
+    // 位于所有消息之后：消息节点在 notice 节点之前。
     const order = container.textContent ?? ''
-    expect(order.indexOf('已切换至 deepseek-chat')).toBeLessThan(order.indexOf('你好'))
+    expect(order.indexOf('你好')).toBeLessThan(order.indexOf('已切换至 deepseek-chat'))
+  })
+
+  it('切换会话后默认定位到最新内容（底部），用户手动上翻后不再被拉回', () => {
+    // 真实流程：选中会话 → 内容异步到达（先空 → 后填充）。
+    const { container, rerender } = render(
+      <ChatArea {...baseProps({ sessionId: 's1', items: [], hasMore: false })} />,
+    )
+    const scroller = container.querySelector('.scrollable') as HTMLElement
+    mockScrollMetrics(scroller, 2000, 400)
+
+    // 内容到达（同会话）：默认滚到底部。
+    rerender(<ChatArea {...baseProps({ sessionId: 's1', items: [userItem(1, 'a'), userItem(2, 'b')], hasMore: false })} />)
+    expect(scroller.scrollTop).toBe(2000)
+
+    // 切换会话：新内容到达后再次滚到底部。
+    rerender(<ChatArea {...baseProps({ sessionId: 's2', items: [userItem(3, 'c')], hasMore: false })} />)
+    expect(scroller.scrollTop).toBe(2000)
+
+    // 用户上翻后收到流式更新：不拉回底部。
+    scroller.scrollTop = 100
+    rerender(<ChatArea {...baseProps({ sessionId: 's2', items: [userItem(3, 'c'), userItem(4, 'd')], hasMore: false })} />)
+    expect(scroller.scrollTop).toBe(100)
   })
 
   it('用户消息复制按钮把 Markdown 原文写入剪贴板并短暂显示「✓ 已复制」', async () => {

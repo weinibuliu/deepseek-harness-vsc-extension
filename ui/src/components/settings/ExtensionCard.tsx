@@ -42,7 +42,7 @@ function UpdateCheckSection({ update, autoCheckUpdates, wire }: {
 
   return (
     <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
         <span className="min-w-0">
           <span className="block text-sm">检查 DSH 更新</span>
           <span className="block text-xs text-description">当前版本 {currentLabel} · 通过 npm registry 查询最新版本</span>
@@ -101,7 +101,7 @@ function WaitingLinesSection({ lines, wire }: { lines: string[]; wire: SettingsW
 
   return (
     <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
         <span className="min-w-0">
           <span className="block text-sm">等待轮播词库</span>
           <span className="block text-xs text-description">
