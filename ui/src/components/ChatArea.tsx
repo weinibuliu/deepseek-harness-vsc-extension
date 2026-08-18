@@ -152,10 +152,9 @@ function UserItemView({
       <div className="my-1 whitespace-pre-wrap break-words rounded-xs bg-badge-background p-2.5 text-sm text-badge-foreground">
         {text}
       </div>
-      {/* M7: 消息操作行——复制（Markdown 原文）+ Fork（从该消息分叉）。 */}
-      <div className="mt-1 flex items-center gap-1.5">
-        <CopyButton text={text} />
-        {onFork ? (
+      {/* M7: 消息操作行——仅 Fork（从该消息分叉）；复制按钮只出现在模型最后的回答上。 */}
+      {onFork ? (
+        <div className="mt-1 flex items-center gap-1.5">
           <button
             type="button"
             className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground opacity-60 hover:opacity-100"
@@ -165,8 +164,8 @@ function UserItemView({
           >
             <IconBranchOutline16 size={12} />
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -252,11 +251,14 @@ function ThinkingSection({ reasoning, streaming }: { reasoning: string; streamin
 }
 
 /** 助手消息：思考块（可折叠）+ markdown 正文（ADR-0004）+ 流式光标。
- *  M7: 最终回复下方显示复制按钮（复制 Markdown 原文；中间思考/工具过程不复制）。 */
+ *  M7: 仅模型最后的回答（showCopy）下方显示复制按钮（复制 Markdown 原文）；
+ *  中间思考/工具过程的回答与更早的回答不复制。 */
 function AssistantItemView({
-  item, onOpenExternalUrl, fileMentions,
+  item, showCopy, onOpenExternalUrl, fileMentions,
 }: {
   item: Extract<ConversationItem, { kind: 'assistant' }>
+  /** M7: 是否为本会话最后一条模型回答（唯一带复制按钮的位置）。 */
+  showCopy: boolean
   onOpenExternalUrl: (url: string) => void
   fileMentions: MarkdownFileMentions
 }) {
@@ -271,11 +273,11 @@ function AssistantItemView({
       />
       {item.partial ? (
         <span className="ml-0.5 inline-block h-[1em] w-0.5 animate-cursor-blink bg-foreground align-text-bottom" />
-      ) : (
+      ) : showCopy ? (
         <div className="mt-1 flex items-center gap-1.5">
           <CopyButton text={item.text} />
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -696,10 +698,12 @@ function ToolCardView({
 }
 
 function ItemView({
-  item, sessionId, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions, onFork,
+  item, sessionId, showCopy, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions, onFork,
 }: {
   item: ConversationItem
   sessionId: string | null
+  /** M7: 本项是否为最后的模型回答（唯一带复制按钮的位置）。 */
+  showCopy: boolean
   workspacePath?: string
   onOpenFile: (path: string) => void
   onOpenExternalUrl: (url: string) => void
@@ -715,7 +719,14 @@ function ItemView({
         />
       )
     case 'assistant':
-      return <AssistantItemView item={item} onOpenExternalUrl={onOpenExternalUrl} fileMentions={fileMentions} />
+      return (
+        <AssistantItemView
+          item={item}
+          showCopy={showCopy}
+          onOpenExternalUrl={onOpenExternalUrl}
+          fileMentions={fileMentions}
+        />
+      )
     case 'note':
       return <div className="my-1 text-center text-xs text-description">{item.text}</div>
     case 'command':
@@ -760,6 +771,10 @@ export function ChatArea({
   const [showBackToBottom, setShowBackToBottom] = useState(false)
   const prevFirstRef = useRef<string | null>(null)
   const prevScrollHeightRef = useRef(0)
+  // 2.8/3.5: 会话切换（含 Fork 落位）→ 待贴底标记：新会话首帧内容渲染时在绘制前
+  // 直接滚到底部（最新对话内容），避免先画顶部再跳底部的可见跳动。初始挂载若已有
+  // 选中会话同样贴底；之后用户手动上翻不再被拉回。
+  const pendingBottomRef = useRef(sessionId !== null)
 
   /** M7: 接近顶部哨兵 → 加载更早记录（IntersectionObserver + 手动复查兜底）。 */
   const maybeLoadOlder = useCallback((): void => {
@@ -805,24 +820,35 @@ export function ChatArea({
     setShowBackToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 200)
   }, [])
 
-  // 2.8: 切换会话 → 默认定位到底部（最新对话内容）。快照异步到达：会话切换先清
-  // 标记，待该会话内容渲染后再滚底；之后用户手动上翻不再被拉回。
-  const bottomedSessionRef = useRef<string | null>(null)
-  useEffect(() => {
-    bottomedSessionRef.current = null
+  // 2.8/3.5: 切换会话（含 Fork 落位）→ 复位滚动状态并置待贴底标记。快照可能异步
+  // 到达：先清无限滚动锚定基线与加载态，待该会话内容渲染后再贴底。layout 阶段执行，
+  // 声明在锚定补偿效应之前——切换提交里先复位，锚定补偿不会跨会话误补偿。
+  useLayoutEffect(() => {
+    pendingBottomRef.current = true
+    prevFirstRef.current = null
+    prevScrollHeightRef.current = 0
+    loadingOlderRef.current = false
+    setLoadingOlder(false)
     setShowBackToBottom(false)
   }, [sessionId])
 
-  useEffect(() => {
-    if (sessionId === null || bottomedSessionRef.current === sessionId) return
+  // 待贴底 → 新会话首帧内容渲染时在绘制前直接滚到底部（最新对话内容）；
+  // 快照异步到达时先等待（items 为空不贴底），渲染后立刻贴底且只贴一次。
+  useLayoutEffect(() => {
+    if (sessionId === null) {
+      pendingBottomRef.current = false
+      return
+    }
+    if (!pendingBottomRef.current) return
     const el = scrollRef.current
     if (!el || items.length === 0) return
     el.scrollTop = el.scrollHeight
-    bottomedSessionRef.current = sessionId
+    pendingBottomRef.current = false
     setShowBackToBottom(false)
   }, [sessionId, items])
 
-  // M7: 顶部插入更早记录 → 按高度差锚定阅读位置（加载不跳动）。
+  // M7: 顶部插入更早记录 → 按高度差锚定阅读位置（加载不跳动）。会话切换时基线
+  // 已在上面的切换效应里复位（prevFirst=null）→ 首帧不补偿。
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -852,6 +878,15 @@ export function ChatArea({
   const lastItem = items[items.length - 1]
   const streamingText =
     lastItem?.kind === 'assistant' && lastItem.partial && lastItem.text.length > 0
+
+  // M7: 只有模型最后的回答才带复制按钮（中间思考/工具过程与更早的回答不复制）。
+  let lastAssistantIndex = -1
+  for (let index = items.length - 1; index >= 0; index--) {
+    if (items[index]!.kind === 'assistant') {
+      lastAssistantIndex = index
+      break
+    }
+  }
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -894,6 +929,7 @@ export function ChatArea({
                 <ItemView
                   item={item}
                   sessionId={sessionId}
+                  showCopy={i === lastAssistantIndex}
                   workspacePath={workspacePath}
                   onOpenFile={onOpenFile}
                   onOpenExternalUrl={onOpenExternalUrl}

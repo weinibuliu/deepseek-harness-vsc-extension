@@ -11,7 +11,7 @@ export const DEFAULT_WAITING_LINES = [
   "蓝色大肥鱼吃白饭中",
   "正在付费上班",
   "卡不够了，多等等",
-  "正在问 AGENTS Code 的意见",
+  "正在问 Claude Code 的意见",
   "正在外包给 Codex 干活",
   "不知道用户有什么用，先养着吧",
 ] as const;

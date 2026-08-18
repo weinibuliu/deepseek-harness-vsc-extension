@@ -106,25 +106,44 @@ describe('ChatArea (M7)', () => {
     expect(scroller.scrollTop).toBe(100)
   })
 
-  it('用户消息复制按钮把 Markdown 原文写入剪贴板并短暂显示「✓ 已复制」', async () => {
-    const props = baseProps({ items: [userItem(1, '# 标题\n- 列表')] })
+  it('只有最后的助手回答有复制按钮：写入 Markdown 原文并短暂显示「✓ 已复制」', async () => {
+    const props = baseProps({
+      items: [
+        userItem(1, '提问'),
+        { kind: 'assistant', text: '中间过程', partial: false },
+        { kind: 'assistant', text: '# 最终\n- 回答', partial: false },
+      ],
+    })
     render(<ChatArea {...props} />)
-    const copyButton = screen.getByRole('button', { name: '复制' })
-    fireEvent.click(copyButton)
+    // 中间回答与用户消息都没有复制按钮，只有最后的模型回答有一个。
+    const copyButtons = screen.getAllByRole('button', { name: '复制' })
+    expect(copyButtons).toHaveLength(1)
+    fireEvent.click(copyButtons[0]!)
     await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('# 标题\n- 列表')
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('# 最终\n- 回答')
     })
     expect(await screen.findByText('✓ 已复制')).toBeTruthy()
   })
 
-  it('助手最终回复下方显示复制按钮（流式 partial 不显示）', () => {
-    const props = baseProps({
-      items: [
-        { kind: 'assistant', text: '最终回复', partial: false },
-        { kind: 'assistant', text: '流式中', partial: true },
-      ],
-    })
-    render(<ChatArea {...props} />)
+  it('流式中的最后回答不显示复制按钮；结算后仅在最后回答上显示', () => {
+    const { rerender } = render(
+      <ChatArea {...baseProps({
+        items: [
+          { kind: 'assistant', text: '中间过程', partial: false },
+          { kind: 'assistant', text: '流式中', partial: true },
+        ],
+      })} />,
+    )
+    expect(screen.queryByRole('button', { name: '复制' })).toBeNull()
+
+    rerender(
+      <ChatArea {...baseProps({
+        items: [
+          { kind: 'assistant', text: '中间过程', partial: false },
+          { kind: 'assistant', text: '流式中', partial: false },
+        ],
+      })} />,
+    )
     expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(1)
   })
 
