@@ -316,9 +316,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // 自动附带：活动编辑器 / 保存 / 文档变更 → 上送当前文件（composer 下方文件条）。
-  // 以 路径+dirty 为键去重——打字只会在 dirty 翻转（false→true）时补发一次，
-  // 不会每次按键重复上送；工作区目录变化强制重推（相对路径基准可能已变）。
+  // 自动附带（origin/main）：活动编辑器 / 保存 / 文档变更 → 上送当前文件
+  // （composer 下方文件条）。以 路径+dirty 为键去重——打字只会在 dirty 翻转
+  // （false→true）时补发一次，不会每次按键重复上送；工作区目录变化强制重推
+  // （相对路径基准可能已变）。
   let lastActiveFileKey: string | null = null;
   const postActiveFile = (): void => {
     const editor = vscode.window.activeTextEditor;

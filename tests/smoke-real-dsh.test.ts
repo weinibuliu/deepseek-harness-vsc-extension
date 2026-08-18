@@ -50,11 +50,17 @@ beforeAll(async () => {
   await waitReady(20_000);
 }, 30_000);
 
-afterAll(() => {
+afterAll(async () => {
   if (!hasDsh) return;
   child?.kill();
-  rmSync(home, { recursive: true, force: true });
-});
+  // 等待 dsh 及其子进程释放目录句柄（否则 rmSync 报 ENOTEMPTY）。
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  try {
+    rmSync(home, { recursive: true, force: true });
+  } catch {
+    // 残留由系统临时目录回收；不影响断言结果。
+  }
+}, 30_000);
 
 describe.skipIf(!hasDsh)("real-dsh smoke (wire contract)", () => {
   it("settings.describe → deriveGenericCards 能从真实 schema 信封派生卡片", async () => {
