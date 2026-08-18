@@ -60,7 +60,6 @@ function renderPanel(overrides: Partial<Parameters<typeof HistoryPanel>[0]> = {}
   const onClose = vi.fn()
   const onOpen = vi.fn()
   const onSelectSession = vi.fn()
-  const onDeleteSession = vi.fn()
   const onArchiveSession = vi.fn()
   const onRenameSession = vi.fn()
   const view = render(
@@ -72,13 +71,12 @@ function renderPanel(overrides: Partial<Parameters<typeof HistoryPanel>[0]> = {}
       onOpen={onOpen}
       onClose={onClose}
       onSelectSession={onSelectSession}
-      onDeleteSession={onDeleteSession}
       onArchiveSession={onArchiveSession}
       onRenameSession={onRenameSession}
       {...overrides}
     />,
   )
-  return { view, onClose, onOpen, onSelectSession, onDeleteSession, onArchiveSession, onRenameSession }
+  return { view, onClose, onOpen, onSelectSession, onArchiveSession, onRenameSession }
 }
 
 afterEach(() => {
@@ -106,12 +104,12 @@ describe('HistoryPanel', () => {
     expect(onSelectSession).toHaveBeenCalledWith('s-aaa')
   })
 
-  it('deletes a session without selecting it', () => {
-    const { view, onSelectSession, onDeleteSession } = renderPanel()
+  it('archives a session via the row archive button without selecting it', () => {
+    const { view, onSelectSession, onArchiveSession } = renderPanel()
 
-    fireEvent.click(view.getAllByRole('button', { name: '删除对话' })[0]!)
+    fireEvent.click(view.getAllByRole('button', { name: '归档对话' })[0]!)
 
-    expect(onDeleteSession).toHaveBeenCalledWith('s-aaa')
+    expect(onArchiveSession).toHaveBeenCalledWith('s-aaa')
     expect(onSelectSession).not.toHaveBeenCalled()
   })
 
@@ -175,7 +173,7 @@ describe('HistoryPanel', () => {
     }))
     const { view } = renderPanel({ sessions: many, activities: {} })
 
-    // 行元素带显式 role="button"（菜单/删除按钮无该属性）→ 计数 = 会话行数。
+    // 行元素带显式 role="button"（菜单/归档按钮无该属性）→ 计数 = 会话行数。
     expect(view.container.querySelectorAll('[role="button"]')).toHaveLength(10)
     expect(view.getByText('已显示 10 / 25 条（继续下滑加载更多）')).toBeTruthy()
 

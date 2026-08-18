@@ -246,7 +246,9 @@ export default function App() {
           setPermissionsBySession((prev) => omitKey(prev, key))
           setAgentPresetsBySession((prev) => omitKey(prev, key))
           setStatsBySession((prev) => omitKey(prev, key))
+          setModelSwitchBySession((prev) => omitKey(prev, key))
           setActiveFileEnabledByKey((prev) => omitKey(prev, key))
+          setConversations((prev) => omitKey(prev, message.sessionId))
           break
         }
         case 'pending':
@@ -287,27 +289,6 @@ export default function App() {
         case 'extensionPrefs':
           setExtensionPrefs(message.prefs)
           break
-        case 'sessionDeleted': {
-          const key = composerKey(message.sessionId)
-          setComposerKeys((prev) => prev.filter((item) => item !== key))
-          setDrafts((prev) => omitKey(prev, key))
-          setAtCandidatesBySession((prev) => omitKey(prev, key))
-          setAtInsertBySession((prev) => omitKey(prev, key))
-          setCommandsBySession((prev) => omitKey(prev, key))
-          setSkillsBySession((prev) => omitKey(prev, key))
-          setModelsBySession((prev) => omitKey(prev, key))
-          setNoticesBySession((prev) => omitKey(prev, key))
-          setOperationsBySession((prev) => omitKey(prev, key))
-          setCommitSeqBySession((prev) => omitKey(prev, key))
-          setActivityBySession((prev) => omitKey(prev, key))
-          setPermissionsBySession((prev) => omitKey(prev, key))
-          setAgentPresetsBySession((prev) => omitKey(prev, key))
-          setStatsBySession((prev) => omitKey(prev, key))
-          setModelSwitchBySession((prev) => omitKey(prev, key))
-          setActiveFileEnabledByKey((prev) => omitKey(prev, key))
-          setConversations((prev) => omitKey(prev, message.sessionId))
-          break
-        }
         case 'forkAccepted': {
           const key = composerKey(message.sessionId)
           setComposerKeys((prev) => prev.includes(key) ? prev : [...prev, key])
@@ -463,11 +444,6 @@ export default function App() {
   // M7: 无限滚动——接近顶部时加载更早的对话记录（扩展侧裁决去重）。
   const handleLoadOlder = useCallback((sessionId: string): void => {
     post({ type: 'loadOlder', sessionId })
-  }, [post])
-
-  // M7: 删除会话（确认由调用方 UI 完成；扩展侧二次核验活动态）。
-  const handleDeleteSession = useCallback((sessionId: string): void => {
-    post({ type: 'deleteSession', sessionId })
   }, [post])
 
   // M7: Fork 会话——该消息为分叉锚点，文本自动填入新会话输入框。
@@ -643,7 +619,6 @@ export default function App() {
           onSelectSession={handleSelectSession}
           onArchiveSession={handleArchiveSession}
           onRenameSession={handleRenameSession}
-          onDeleteSession={handleDeleteSession}
         />
         <ChatArea
           sessionId={selectedSessionId}

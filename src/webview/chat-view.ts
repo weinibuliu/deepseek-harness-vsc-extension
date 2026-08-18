@@ -519,6 +519,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "refresh":
         await this.refreshSessions();
         break;
+      // M7: 归档会话（契约跟随：rc7 无 session.delete RPC，后端存储同步的归档面
+      // 就是 workspace.archiveSession——会话从所有分组表面消失、注册表持久化）。
+      // 活动会话拒绝归档（数据安全：不可误操作）；归档的是当前会话 → 自动切换到
+      // 最近的其他会话（或空态）。
       case "archiveSession": {
         if (this.isSessionActive(message.sessionId)) {
           this.post({
@@ -532,11 +536,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
           await this.sessions.archiveSession(message.sessionId);
           this.agentPresets.clear(message.sessionId);
+          this.conversations.forget(message.sessionId);
+          this.activities.delete(message.sessionId);
           this.post({ type: "sessionArchived", sessionId: message.sessionId });
           if (this._selectedSessionId === message.sessionId) {
-            this._selectedSessionId = null;
-            this.post({ type: "selectedSession", sessionId: null });
-            await this.refreshAgentPresets(null);
+            // 自动切换到最近的其他对话：重拉列表后取第一条（updatedAt 降序）；无会话 → 空态。
+            const workspace = this.sessions.currentWorkspace;
+            const remaining = workspace
+              ? await this.sessions.listSessions(message.sessionId)
+              : [];
+            const next = remaining[0]?.sessionId ?? null;
+            this._selectedSessionId = next;
+            this.post({ type: "selectedSession", sessionId: next });
+            if (next !== null) {
+              await this.loadConversation(next);
+              await this.refreshComposerCatalogs(next);
+              await this.refreshAgentPresets(next);
+            } else {
+              await this.refreshAgentPresets(null);
+            }
           }
           await this.refreshSessions();
         } catch (error) {
@@ -608,10 +626,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       // M7: 无限滚动——接近顶部时加载更早的对话记录。
       case "loadOlder":
         await this.serveLoadOlder(message.sessionId);
-        break;
-      // M7: 删除会话（活动会话拒绝；后端存储同步）。
-      case "deleteSession":
-        await this.serveDeleteSession(message.sessionId);
         break;
       // M7: 从某条用户消息 Fork 新会话（继承上下文 + 文本填入新输入框）。
       case "forkSession":
@@ -1968,50 +1982,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const snapshot = this.conversations.snapshot(sessionId);
         if (snapshot) this.post({ type: "conversation", sessionId, snapshot });
       }
-    }
-  }
-
-  /**
-   * M7: 删除会话（契约跟随：rc7 无 session.delete RPC，删除面 = workspace.archiveSession，
-   * 注册表持久化、从所有分组表面消失）。活动会话拒绝删除（数据安全：不可误操作）。
-   * 删除的是当前会话 → 自动切换到最近的其他会话（或空态）。
-   */
-  private async serveDeleteSession(sessionId: string): Promise<void> {
-    if (this.isSessionActive(sessionId)) {
-      this.post({
-        type: "commandNotice",
-        sessionId,
-        level: "error",
-        text: "进行中的会话不能删除",
-      });
-      return;
-    }
-    try {
-      await this.sessions.deleteSession(sessionId);
-      this.agentPresets.clear(sessionId);
-      this.conversations.forget(sessionId);
-      this.activities.delete(sessionId);
-      this.post({ type: "sessionDeleted", sessionId });
-      if (this._selectedSessionId === sessionId) {
-        // 自动切换到最近的其他对话：重拉列表后取第一条（updatedAt 降序）；无会话 → 空态。
-        const workspace = this.sessions.currentWorkspace;
-        const remaining = workspace
-          ? await this.sessions.listSessions(sessionId)
-          : [];
-        const next = remaining[0]?.sessionId ?? null;
-        this._selectedSessionId = next;
-        this.post({ type: "selectedSession", sessionId: next });
-        if (next !== null) {
-          await this.loadConversation(next);
-          await this.refreshComposerCatalogs(next);
-          await this.refreshAgentPresets(next);
-        } else {
-          await this.refreshAgentPresets(null);
-        }
-      }
-      await this.refreshSessions();
-    } catch (error) {
-      this.post({ type: "notice", text: String(error) });
     }
   }
 

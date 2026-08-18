@@ -157,7 +157,11 @@ export class SessionService {
     });
   }
 
-  /** Archive a session into the registry-global set; returns the full updated set. */
+  /**
+   * M7: 归档一条会话。rc7 的 wire 没有 session.delete RPC——后端存储同步的归档面
+   * 就是 workspace.archiveSession（会话从所有分组表面消失、注册表持久化；日志保留）。
+   * 契约跟随：UI 语义统一为「归档」（历史面板按钮 / 行内菜单 / 确认弹窗共用此面）。
+   */
   async archiveSession(sessionId: string): Promise<readonly string[]> {
     const client = this.requireClient();
     const { archivedSessionIds } = await client.call<{
@@ -165,15 +169,6 @@ export class SessionService {
     }>("workspace.archiveSession", { sessionId });
     this.archivedSessionIds = archivedSessionIds;
     return archivedSessionIds;
-  }
-
-  /**
-   * M7: 删除一条会话。rc7 的 wire 没有 session.delete RPC——后端存储同步的删除面
-   * 就是 workspace.archiveSession（会话从所有分组表面消失、注册表持久化；日志保留）。
-   * 契约跟随：删除 = 归档，UI 语义为「删除」。
-   */
-  async deleteSession(sessionId: string): Promise<readonly string[]> {
-    return await this.archiveSession(sessionId);
   }
 
   /**

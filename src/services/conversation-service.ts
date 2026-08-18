@@ -230,7 +230,7 @@ export class ConversationService extends EventEmitter {
       await this.attach(sessionId);
   }
 
-  /** M7: 会话删除后清理其跟踪状态。 */
+  /** M7: 会话归档后清理其跟踪状态。 */
   forget(sessionId: string): void {
     this.tracked.delete(sessionId);
     this.agentErrors.delete(sessionId);

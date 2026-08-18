@@ -122,8 +122,6 @@ export type ExtensionToWebviewMessage =
   | { type: "modelSwitched"; sessionId: string | null; label: string }
   // M7: 扩展自身偏好（轮播词库等；hydrate/变更后推送，聊天页 TypewriterWait 也消费）。
   | { type: "extensionPrefs"; prefs: ExtensionPrefsView }
-  // M7: 会话已删除（webview 清理该会话的全部临时状态）。
-  | { type: "sessionDeleted"; sessionId: string }
   // M7: Fork 成功：新会话已创建并选中；text 自动填入新会话输入框（草稿由 webview 落位）。
   | { type: "forkAccepted"; sourceSessionId: string; sessionId: string; text: string }
   // M7: Fork 失败（fork-unavailable / 传输失败等；经 commandNotice 样式直送源会话）。
@@ -267,8 +265,6 @@ export type WebviewToExtensionMessage =
   | { type: "openExternalUrl"; url: string }
   // M7: 向上滚动接近顶部时自动加载更早的对话记录（会话历史无限滚动）。
   | { type: "loadOlder"; sessionId: string }
-  // M7: 删除一条会话（后端存储同步；活动会话拒绝）。
-  | { type: "deleteSession"; sessionId: string }
   // M7: 从某条用户消息处 Fork 一条新会话（继承该消息及之前的上下文；text 自动填入新输入框）。
   | { type: "forkSession"; sessionId: string; seq: number; text: string }
   // M7: 通用 settings 卡片字段写操作（plugin 注册的任意 namespace 卡片）。

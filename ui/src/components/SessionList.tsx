@@ -12,10 +12,9 @@ interface SessionListProps {
   onRefresh: () => void
   onOpenSettings: () => void
   onSelectSession: (sessionId: string) => void
+  /** M7: 归档会话（历史面板按钮 / 行内菜单共用；本组件统一加二次确认）。 */
   onArchiveSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string | null) => void
-  /** M7: 删除会话（确认后调用；后端存储同步）。 */
-  onDeleteSession: (sessionId: string) => void
 }
 
 /**
@@ -34,11 +33,10 @@ export function SessionList({
   onSelectSession,
   onArchiveSession,
   onRenameSession,
-  onDeleteSession,
 }: SessionListProps) {
-  // M7: 对话历史面板开关 + 删除确认目标（二次确认，防误操作）。
+  // M7: 对话历史面板开关 + 归档确认目标（二次确认，防误操作）。
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<string | null>(null)
 
   return (
     <section className="flex max-h-[40%] flex-none flex-col overflow-visible border-b border-border-panel">
@@ -65,8 +63,7 @@ export function SessionList({
               setHistoryOpen(false)
               onSelectSession(sessionId)
             }}
-            onDeleteSession={(sessionId) => setDeleteTarget(sessionId)}
-            onArchiveSession={onArchiveSession}
+            onArchiveSession={(sessionId) => setArchiveTarget(sessionId)}
             onRenameSession={onRenameSession}
           />
           <button
@@ -89,37 +86,37 @@ export function SessionList({
         </div>
       </div>
       {/* M7.1: 顶部内联历史列表已移除（历史经右上角卡片查看）。 */}
-      {/* M7: 删除会话二次确认（数据安全：不可误操作；确认后列表即时刷新）。 */}
-      {deleteTarget !== null ? (
+      {/* M7: 归档会话二次确认（数据安全：不可误操作；确认后列表即时刷新）。 */}
+      {archiveTarget !== null ? (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-          onClick={() => setDeleteTarget(null)}
+          onClick={() => setArchiveTarget(null)}
         >
           <div
             className="flex w-[85%] max-w-sm flex-col gap-2 rounded-xs border border-border-panel bg-background p-3 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="text-sm">确定删除此对话？</div>
+            <div className="text-sm">确定归档此对话？</div>
             <p className="text-xs text-description">
-              删除后该对话将从历史列表移除，此操作不可撤销。
+              归档后该对话将从历史列表移除，可在 DeepSeek Harness 中查看归档会话。
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 className="rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
-                onClick={() => setDeleteTarget(null)}
+                onClick={() => setArchiveTarget(null)}
               >
                 取消
               </button>
               <button
                 type="button"
-                className="rounded-xs bg-error px-2.5 py-1 text-xs text-white hover:opacity-90"
+                className="rounded-xs bg-selection px-2.5 py-1 text-xs text-selection-foreground hover:opacity-90"
                 onClick={() => {
-                  onDeleteSession(deleteTarget)
-                  setDeleteTarget(null)
+                  onArchiveSession(archiveTarget)
+                  setArchiveTarget(null)
                 }}
               >
-                删除
+                归档
               </button>
             </div>
           </div>

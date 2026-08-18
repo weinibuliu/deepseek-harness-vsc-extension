@@ -21,7 +21,7 @@ The Project is **Visual Studio Code Extension** provides additional features for
 - Problems from editor 编辑器问题
 - Agent Preset selector for blank sessions 空白会话模式选择器
 - Plugin-registered settings cards (rc7) 插件注册的设置卡片（rc7）
-- Conversation history panel / delete / fork 对话历史面板 / 删除 / Fork
+- Conversation history panel / archive / fork 对话历史面板 / 归档 / Fork
 - Parallel conversations (cap 5) 多对话并行（上限 5）
 - Infinite history scroll + back-to-bottom 历史无限滚动 + 回到底部
 - Copy (Markdown) / model-switch notice / rotating typewriter wait 复制（Markdown）/ 模型切换提示 / 轮播打字机等待

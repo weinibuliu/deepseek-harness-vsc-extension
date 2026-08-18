@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { SessionActivityView, SessionSummary } from '../../../src/shared/protocol.ts'
-import { IconCloseOutline16, IconEllipsisOutline16, IconLoadingOutline16, IconTrashOutline16 } from '../../icons/index.tsx'
+import { IconArchiveOutline20, IconCloseOutline16, IconEllipsisOutline16, IconLoadingOutline16 } from '../../icons/index.tsx'
 
 interface HistoryPanelProps {
   open: boolean
@@ -11,9 +11,9 @@ interface HistoryPanelProps {
   onOpen: () => void
   onClose: () => void
   onSelectSession: (sessionId: string) => void
-  onDeleteSession: (sessionId: string) => void
-  /** M7.1: 行内「…」菜单动作（原顶部内联列表的入口移入本面板）。 */
+  /** M7: 归档会话（行内归档按钮与「…」菜单共用；确认由外层 SessionList 完成）。 */
   onArchiveSession: (sessionId: string) => void
+  /** M7.1: 行内「…」菜单动作（原顶部内联列表的入口移入本面板）。 */
   onRenameSession: (sessionId: string, currentTitle: string | null) => void
 }
 
@@ -58,7 +58,6 @@ export function HistoryPanel({
   onOpen,
   onClose,
   onSelectSession,
-  onDeleteSession,
   onArchiveSession,
   onRenameSession,
 }: HistoryPanelProps) {
@@ -249,14 +248,14 @@ export function HistoryPanel({
                     <button
                       type="button"
                       className="input-icon-button flex size-5 flex-none items-center justify-center rounded-xs text-icon-foreground opacity-60 hover:opacity-100 focus:opacity-100"
-                      title="删除对话"
-                      aria-label="删除对话"
+                      title="归档对话"
+                      aria-label="归档对话"
                       onClick={(event) => {
                         event.stopPropagation()
-                        onDeleteSession(item.sessionId)
+                        onArchiveSession(item.sessionId)
                       }}
                     >
-                      <IconTrashOutline16 size={12} />
+                      <IconArchiveOutline20 size={12} />
                     </button>
                     <button
                       type="button"
