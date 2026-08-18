@@ -96,6 +96,30 @@ export interface BaselineInfo {
 export class AtRefService {
   constructor(private readonly deps: AtRefDeps) {}
 
+  /**
+   * 当前活动编辑器文件（自动附带特性：composer 下方文件条 + 发送时按基准构造
+   * @ 引用）。无编辑器时 null；展示路径工作区内取相对 Workspace 根、区外回落
+   * basename（chips 只显示单文件名，不显示 `../` 前缀）。
+   */
+  activeFile(): AtRefCandidate | null {
+    const editor = this.deps.activeEditor();
+    if (!editor) return null;
+    const workspaceRoot = this.deps.workspaceRoot();
+    const rel = workspaceRoot
+      ? toPosix(relative(workspaceRoot, editor.path))
+      : null;
+    const relativePath =
+      rel !== null && rel !== "" && !rel.startsWith("../")
+        ? rel
+        : basename(editor.path);
+    return {
+      absolutePath: editor.path,
+      relativePath,
+      pinned: true,
+      dirty: editor.dirty,
+    };
+  }
+
   /** 枚举 @ 候选：当前文件置顶 + 工作区文件（.gitignore 过滤、去重、排序）。 */
   async listCandidates(): Promise<AtRefCandidate[]> {
     const workspaceRoot = this.deps.workspaceRoot();

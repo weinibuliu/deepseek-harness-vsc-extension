@@ -24,6 +24,14 @@
  * `onProjections` callback so the ProjectionService can seed its store from
  * the same single history call — no duplicate request, and the seed rides
  * this service's attach/resync lifecycle.
+ *
+ * History pagination: the tail page only covers the newest messages
+ * (server default window), so `attach` records `hasMore` and `loadOlder`
+ * pages backwards via `beforeSeq`. Events already held in memory survive a
+ * re-attach/resync (merge by seq) — a reconnect must never make the
+ * messages the user already loaded disappear. The window is always one
+ * contiguous seq range, so the fold is rebuilt deterministically from the
+ * merged event list on every page change.
  */
 
 import { EventEmitter } from "node:events";
@@ -56,27 +64,59 @@ type MuxFrame =
   | { type: "session/event"; sessionId: string; event: WireSessionEvent }
   | { type: "session/subscribed"; sessionId: string; lastSeq: number };
 
-/** M7: 历史页大小（单次加载不超过 50 条消息；attach 与 loadOlder 共用）。 */
-const HISTORY_PAGE_MESSAGES = 50;
-
-/** One tracked session: raw loaded events (ascending) + their deterministic fold. */
-interface TrackedConversation {
-  events: WireSessionEvent[];
+/** Per-session tracked state: the fold plus the raw event window it was built from. */
+interface TrackedSession {
   fold: ConversationFold;
-  /** 是否还存在更早的历史页（session.history.hasMore）。 */
+  /** All applied events in strictly ascending seq order (deduped by seq). */
+  events: WireSessionEvent[];
+  /** True when older events exist below the loaded window（loadOlder 可用）。 */
   hasMore: boolean;
+  /** loadOlder in flight（防重复翻页）。 */
+  loadingOlder: boolean;
 }
 
-/** 由原始事件（升序）重建确定性 fold。 */
-function buildFold(events: readonly WireSessionEvent[]): ConversationFold {
+/** Rebuild a fold from an ordered, seq-deduped event list (replay determinism). */
+function buildFold(events: WireSessionEvent[]): ConversationFold {
   const fold = new ConversationFold();
   for (const event of events) fold.apply(event);
   return fold;
 }
 
+/** Merge event lists into one ascending, seq-deduped list (first wins per seq). */
+function mergeEvents(lists: WireSessionEvent[][]): WireSessionEvent[] {
+  const bySeq = new Map<number, WireSessionEvent>();
+  for (const list of lists) {
+    for (const event of list) if (!bySeq.has(event.seq)) bySeq.set(event.seq, event);
+  }
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+}
+
+/**
+ * Derive `hasMore` for the merged window after an attach. The window is a
+ * contiguous seq range; when the tail page is the oldest thing we hold its
+ * flag is authoritative, and when we preserved older pages the older-than-
+ * window question is unchanged from what it was before the attach.
+ */
+function resolveHasMore(
+  page: HistoryPage,
+  previous: TrackedSession | undefined,
+  merged: WireSessionEvent[],
+): boolean {
+  const pageEarliest = page.events[0]?.event.seq;
+  const mergedEarliest = merged[0]?.seq;
+  if (
+    mergedEarliest === undefined ||
+    pageEarliest === undefined ||
+    mergedEarliest >= pageEarliest
+  ) {
+    return page.hasMore;
+  }
+  return previous?.hasMore ?? page.hasMore;
+}
+
 export class ConversationService extends EventEmitter {
-  private readonly tracked = new Map<string, TrackedConversation>();
-  /** Frames buffered while an attach is mid-flight (drained seq-deduped). */
+  private readonly tracked = new Map<string, TrackedSession>();
+  /** Frames buffered while a fetch is mid-flight (drained seq-deduped). */
   private readonly pending = new Map<string, WireSessionEvent[]>();
   /** M4: per-session host/agent-error notes (no turn position; appended at snapshot layer). */
   private readonly agentErrors = new Map<string, string[]>();
@@ -100,7 +140,7 @@ export class ConversationService extends EventEmitter {
   snapshot(sessionId: string): ConversationSnapshot | null {
     const tracked = this.tracked.get(sessionId);
     if (!tracked) return null;
-    return this.withNotes(sessionId, {
+    return this.withAgentErrorNotes(sessionId, {
       ...tracked.fold.snapshot(),
       hasMore: tracked.hasMore,
     });
@@ -125,8 +165,10 @@ export class ConversationService extends EventEmitter {
   /**
    * Rebuild the fold for a session from its history tail page. Safe against
    * concurrent live frames: they buffer in `pending` while the fetch is in
-   * flight, then drain through the fold's seq watermark (frames already
-   * covered by the history page are dropped, newer ones apply).
+   * flight, then merge into the window by seq (frames already covered by the
+   * history page are dropped, newer ones apply). Events already held for the
+   * session survive the rebuild — a resync/re-select never drops messages the
+   * user previously loaded, only re-baselines the tail.
    */
   async attach(sessionId: string): Promise<ConversationSnapshot> {
     const client = this.requireClient();
@@ -141,16 +183,19 @@ export class ConversationService extends EventEmitter {
       // store (single history call seeds both fold and projections).
       if (page.projections !== undefined)
         this.onProjections?.(sessionId, page.projections as ProjectionsBlock);
-      const events = page.events.map((entry) => entry.event);
-      for (const event of pending.splice(0)) {
-        if (events.length === 0 || event.seq > (events[events.length - 1]?.seq ?? -1))
-          events.push(event);
-      }
-      this.tracked.set(sessionId, {
-        events,
+      const previous = this.tracked.get(sessionId);
+      const events = mergeEvents([
+        previous?.events ?? [],
+        page.events.map((entry) => entry.event),
+        pending.splice(0),
+      ]);
+      const tracked: TrackedSession = {
         fold: buildFold(events),
-        hasMore: page.hasMore,
-      });
+        events,
+        hasMore: resolveHasMore(page, previous, events),
+        loadingOlder: previous?.loadingOlder ?? false,
+      };
+      this.tracked.set(sessionId, tracked);
       this.emit("change", sessionId);
       return this.snapshot(sessionId) as ConversationSnapshot;
     } finally {
@@ -159,36 +204,47 @@ export class ConversationService extends EventEmitter {
   }
 
   /**
-   * M7: 向前加载一页更早的历史（beforeSeq = 已加载的最早 seq），重建 fold。
-   * 无更早记录时 no-op 返回当前快照（hasMore=false → 全部已加载，不再发请求）。
+   * Load the previous history page (backwards from the window's earliest
+   * seq) and prepend it to the tracked window, rebuilding the fold from the
+   * merged events. No-op when the window is complete, already loading, or
+   * unattached. Frames racing in during the fetch buffer in `pending` and
+   * merge on completion, exactly like `attach`.
    */
   async loadOlder(sessionId: string): Promise<ConversationSnapshot> {
-    const tracked = this.tracked.get(sessionId);
-    if (!tracked) throw new Error("会话尚未加载，无法加载更早记录");
-    if (!tracked.hasMore) return this.snapshot(sessionId) as ConversationSnapshot;
-    const client = this.requireClient();
-    const firstSeq = tracked.events[0]?.seq;
-    if (firstSeq === undefined) {
-      tracked.hasMore = false;
-      this.emit("change", sessionId);
+    const initial = this.tracked.get(sessionId);
+    if (!initial || !initial.hasMore || initial.loadingOlder) {
       return this.snapshot(sessionId) as ConversationSnapshot;
     }
-    const page = await client.call<HistoryPage>("session.history", {
-      sessionId,
-      beforeSeq: firstSeq,
-      maxMessages: HISTORY_PAGE_MESSAGES,
-    });
-    const older = page.events.map((entry) => entry.event);
-    // 防御：服务器返回的旧页必须严格落在已加载窗口之前（seq 升序去重）。
-    const merged = [
-      ...older.filter((event) => event.seq < firstSeq),
-      ...tracked.events,
-    ];
-    tracked.events = merged;
-    tracked.fold = buildFold(merged);
-    tracked.hasMore = page.hasMore;
-    this.emit("change", sessionId);
-    return this.snapshot(sessionId) as ConversationSnapshot;
+    const beforeSeq = initial.events[0]?.seq;
+    if (beforeSeq === undefined)
+      return this.snapshot(sessionId) as ConversationSnapshot;
+    initial.loadingOlder = true;
+    const pending = this.pending.get(sessionId) ?? [];
+    this.pending.set(sessionId, pending);
+    try {
+      const client = this.requireClient();
+      const page = await client.call<HistoryPage>("session.history", {
+        sessionId,
+        beforeSeq,
+      });
+      // A concurrent attach (resync) may have replaced the tracked entry
+      // mid-flight; land the page on the entry the map currently holds so
+      // the loaded window is never lost.
+      const target = this.tracked.get(sessionId) ?? initial;
+      target.events = mergeEvents([
+        page.events.map((entry) => entry.event),
+        target.events,
+        pending.splice(0),
+      ]);
+      target.fold = buildFold(target.events);
+      target.hasMore = page.hasMore;
+      this.emit("change", sessionId);
+      return this.snapshot(sessionId) as ConversationSnapshot;
+    } finally {
+      const target = this.tracked.get(sessionId) ?? initial;
+      target.loadingOlder = false;
+      if (pending.length === 0) this.pending.delete(sessionId);
+    }
   }
 
   /**
@@ -218,7 +274,6 @@ export class ConversationService extends EventEmitter {
     const tracked = this.tracked.get(payload.sessionId);
     if (!tracked) return; // unattached session: history replay will cover it
     if (tracked.fold.applyIfNewer(payload.event)) {
-      // M7: live 帧同时进入原始事件数组，保持 loadOlder 重建的一致性。
       tracked.events.push(payload.event);
       this.emit("change", payload.sessionId);
     }

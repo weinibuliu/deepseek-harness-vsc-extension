@@ -968,6 +968,8 @@ export class ConversationFold {
     return this.revision !== before;
   }
 
+  /** The folded surface without the pagination flag; the owning service adds
+   *  `hasMore` (tracked per session, not derivable from the fold itself). */
   snapshot(): Omit<ConversationSnapshot, "hasMore"> {
     return {
       items: [...this.items],

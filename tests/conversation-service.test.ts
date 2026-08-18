@@ -1,172 +1,282 @@
 /**
- * ConversationService (M7) tests: attach seeds the fold from the history tail
- * page (maxMessages=50), loadOlder prepends the previous page with
- * beforeSeq=first loaded seq and rebuilds the deterministic fold, hasMore
- * gates further loads, pushNote appends plain notes at the snapshot layer,
- * and live frames fold into attached sessions only.
+ * ConversationService 历史分页测试（M2 + loadOlder）：
+ *   - attach 从 session.history 尾页种窗口并记录 hasMore；
+ *   - loadOlder 经 beforeSeq 向前翻页并前置合并（seq 去重）；
+ *   - 并发 live 帧在 fetch 期间缓冲（pending）并在完成后合并；
+ *   - resync/重 attach 不丢已加载的更早事件；
+ *   - hasMore=false / loadingOlder 期间的重复 loadOlder 为 no-op。
  */
 
-import { describe, expect, it } from "vitest";
-import type { WireClient } from "../src/dsh/wire.ts";
-import { ConversationService } from "../src/services/conversation-service.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  ConversationService,
+  type HistoryPage,
+} from "../src/services/conversation-service.ts";
+import type { WireSessionEvent } from "../src/conversation/fold.ts";
+import type { WireClient, ServerRequest } from "../src/dsh/wire.ts";
 
-type Call = <T>(method: string, payload: unknown) => Promise<T>;
-
-function service(call: Call): ConversationService {
-  return new ConversationService(
-    () => ({ call }) as unknown as Pick<WireClient, "call">,
-  );
-}
-
-/** 最小可折叠事件工厂。 */
-function userEvent(seq: number, text: string): { type: string; seq: number; time: number; data: unknown } {
+/** 一条可折叠为 user 气泡的最小事件。 */
+function userEvent(seq: number, text: string): WireSessionEvent {
   return {
     type: "user/message",
     seq,
-    time: seq,
-    data: { content: [{ type: "text", text }], source: { kind: "user" } },
+    time: seq * 1000,
+    data: { content: [{ type: "text", text }] },
   };
 }
 
-function noteEvent(seq: number): { type: string; seq: number; time: number; data: unknown } {
-  return { type: "turn/start", seq, time: seq, data: { turn: 1 } };
+/** 按 seq 升序返回的多条 user 事件。 */
+function userEvents(seqs: number[]): WireSessionEvent[] {
+  return seqs.map((seq) => userEvent(seq, `message-${seq}`));
 }
 
-describe("ConversationService (M7 infinite scroll)", () => {
-  it("attach requests the tail page with maxMessages=50 and reports hasMore", async () => {
-    let payload: unknown;
-    const subject = service(async <T>(method: string, request: unknown) => {
-      expect(method).toBe("session.history");
-      payload = request;
-      return {
-        events: [{ event: userEvent(10, "你好") }],
-        hasMore: true,
-      } as T;
-    });
+function page(
+  events: WireSessionEvent[],
+  hasMore: boolean,
+): HistoryPage {
+  return {
+    events: events.map((event) => ({ event })),
+    hasMore,
+  };
+}
 
-    const snapshot = await subject.attach("s1");
+/** 一个可编程的 fake WireClient：按 method+payload 匹配返回历史页。 */
+function fakeClient(
+  respond: (method: string, payload: unknown) => Promise<HistoryPage>,
+) {
+  const call = vi.fn(
+    (method: string, payload: unknown) => respond(method, payload),
+  );
+  return {
+    call,
+    client: { call } as unknown as WireClient,
+  };
+}
 
-    expect(payload).toEqual({ sessionId: "s1", maxMessages: 50 });
-    expect(snapshot.items).toHaveLength(1);
-    expect(snapshot.items[0]).toMatchObject({ kind: "user", text: "你好", seq: 10 });
+function frame(
+  sessionId: string,
+  event: WireSessionEvent,
+): ServerRequest {
+  return {
+    type: "server-request",
+    rpcId: "rpc-test",
+    method: "session/event",
+    payload: { type: "session/event", sessionId, event },
+  };
+}
+
+function userTexts(snapshot: { items: { kind: string; text?: string }[] }): string[] {
+  return snapshot.items
+    .filter((item) => item.kind === "user")
+    .map((item) => item.text ?? "");
+}
+
+describe("ConversationService history pagination", () => {
+  it("attach seeds the tail window and records hasMore", async () => {
+    const { call, client } = fakeClient(async () =>
+      page(userEvents([8, 9, 10]), true),
+    );
+    const service = new ConversationService(() => client);
+
+    const snapshot = await service.attach("s1");
+
+    expect(userTexts(snapshot)).toEqual(["message-8", "message-9", "message-10"]);
+    expect(snapshot.lastSeq).toBe(10);
     expect(snapshot.hasMore).toBe(true);
+    expect(call).toHaveBeenCalledWith("session.history", { sessionId: "s1" });
   });
 
-  it("loadOlder prepends the previous page (beforeSeq = first loaded seq) and keeps the fold deterministic", async () => {
-    const calls: unknown[] = [];
-    const subject = service(async <T>(method: string, request: unknown) => {
-      calls.push(request);
-      const { sessionId, beforeSeq } = request as { sessionId: string; beforeSeq?: number };
-      expect(method).toBe("session.history");
-      expect(sessionId).toBe("s1");
-      if (beforeSeq === undefined) {
-        // tail page: newest messages
-        return {
-          events: [
-            { event: userEvent(20, "b") },
-            { event: userEvent(30, "c") },
-          ],
-          hasMore: true,
-        } as T;
+  it("loadOlder prepends the previous page via beforeSeq and updates hasMore", async () => {
+    const { call, client } = fakeClient(async (method, payload) => {
+      if (payload && typeof payload === "object" && "beforeSeq" in payload) {
+        return page(userEvents([5, 6, 7]), false);
       }
-      expect(beforeSeq).toBe(20);
-      return {
-        events: [{ event: userEvent(10, "a") }],
-        hasMore: false,
-      } as T;
+      return page(userEvents([8, 9, 10]), true);
     });
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
 
-    await subject.attach("s1");
-    const snapshot = await subject.loadOlder("s1");
+    const snapshot = await service.loadOlder("s1");
 
-    expect(snapshot.items.map((item) => (item.kind === "user" ? item.text : null))).toEqual([
-      "a",
-      "b",
-      "c",
+    expect(userTexts(snapshot)).toEqual([
+      "message-5",
+      "message-6",
+      "message-7",
+      "message-8",
+      "message-9",
+      "message-10",
     ]);
-    expect(snapshot.lastSeq).toBe(30);
+    expect(snapshot.lastSeq).toBe(10);
     expect(snapshot.hasMore).toBe(false);
+    expect(call).toHaveBeenCalledWith("session.history", {
+      sessionId: "s1",
+      beforeSeq: 8,
+    });
   });
 
-  it("stops requesting once hasMore is false (全部加载完毕后不再触发加载请求)", async () => {
-    let reads = 0;
-    const subject = service(async <T>() => {
-      reads += 1;
-      return { events: [{ event: userEvent(1, "a") }], hasMore: false } as T;
-    });
+  it("loadOlder is a no-op when the window is complete", async () => {
+    const { call, client } = fakeClient(async () =>
+      page(userEvents([1, 2]), false),
+    );
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
+    const before = call.mock.calls.length;
 
-    await subject.attach("s1");
-    const first = await subject.loadOlder("s1");
-    const second = await subject.loadOlder("s1");
+    const snapshot = await service.loadOlder("s1");
 
-    expect(reads).toBe(1);
-    expect(first.hasMore).toBe(false);
-    expect(second.items).toHaveLength(1);
+    expect(call.mock.calls.length).toBe(before); // 不再发 RPC
+    expect(userTexts(snapshot)).toEqual(["message-1", "message-2"]);
   });
 
-  it("ignores older-page events at or after the loaded window (seq 去重防御)", async () => {
-    let page = 0;
-    const subject = service(async <T>() => {
-      page += 1;
-      if (page === 1)
-        return {
-          events: [{ event: userEvent(10, "a") }, { event: userEvent(20, "b") }],
-          hasMore: true,
-        } as T;
-      return {
-        // 旧页错误地携带了已加载窗口内的 seq 15：必须被过滤（只接受 < firstSeq）。
-        events: [{ event: userEvent(5, "x") }, { event: userEvent(15, "dup") }],
-        hasMore: false,
-      } as T;
+  it("guards against concurrent loadOlder calls (loadingOlder flag)", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    const { call, client } = fakeClient(async (method, payload) => {
+      if (payload && typeof payload === "object" && "beforeSeq" in payload) {
+        await gate; // 挂起第一次翻页
+        return page(userEvents([1, 2]), false);
+      }
+      return page(userEvents([3, 4]), true);
+    });
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
 
-    await subject.attach("s1");
-    const snapshot = await subject.loadOlder("s1");
+    const first = service.loadOlder("s1");
+    const second = await service.loadOlder("s1"); // 应立刻返回，不再发 RPC
 
-    expect(snapshot.items.map((item) => (item.kind === "user" ? item.text : null))).toEqual([
-      "x",
-      "a",
-      "b",
+    expect(userTexts(second)).toEqual(["message-3", "message-4"]);
+    const historyCalls = call.mock.calls.filter(
+      ([method]) => method === "session.history",
+    );
+    expect(historyCalls.length).toBe(2); // attach + 仅一次 loadOlder
+    release?.();
+    const settled = await first;
+    expect(userTexts(settled)).toEqual([
+      "message-1",
+      "message-2",
+      "message-3",
+      "message-4",
     ]);
   });
 
-  it("pushNote appends a plain note to the snapshot (fold stays pure)", async () => {
-    const subject = service(async <T>() => {
-      return { events: [{ event: userEvent(1, "a") }], hasMore: false } as T;
+  it("drains live frames buffered during a loadOlder fetch", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    await subject.attach("s1");
-    subject.pushNote("s1", "已生成 AGENTS.md");
+    const { client } = fakeClient(async (method, payload) => {
+      if (payload && typeof payload === "object" && "beforeSeq" in payload) {
+        await gate;
+        return page(userEvents([1, 2]), false);
+      }
+      return page(userEvents([3, 4]), true);
+    });
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
 
-    const snapshot = subject.snapshot("s1");
-    expect(snapshot?.items[1]).toEqual({ kind: "note", text: "已生成 AGENTS.md" });
+    const loading = service.loadOlder("s1");
+    // 翻页期间的并发 live 帧进入 pending 缓冲。
+    service.applyFrame(frame("s1", userEvent(5, "message-5")));
+    service.applyFrame(frame("s1", userEvent(4, "message-4-dup"))); // 已覆盖 → 丢弃
+    release?.();
+    const snapshot = await loading;
+
+    expect(userTexts(snapshot)).toEqual([
+      "message-1",
+      "message-2",
+      "message-3",
+      "message-4",
+      "message-5",
+    ]);
+    expect(snapshot.lastSeq).toBe(5);
   });
 
-  it("live frames fold into attached sessions and stay replayable through loadOlder", async () => {
-    const subject = service(async <T>() => {
-      return { events: [{ event: userEvent(1, "a") }], hasMore: false } as T;
+  it("re-attach preserves events loaded from older pages (resync-safe)", async () => {
+    const { client } = fakeClient(async (method, payload) => {
+      if (payload && typeof payload === "object" && "beforeSeq" in payload) {
+        return page(userEvents([1, 2, 3]), true);
+      }
+      // 尾页只覆盖最新窗口。
+      return page(userEvents([4, 5, 6]), true);
     });
-    await subject.attach("s1");
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
+    await service.loadOlder("s1");
 
-    subject.applyFrame({
-      type: "server-request",
-      rpcId: "r",
-      method: "session/event",
-      payload: { type: "session/event", sessionId: "s1", event: noteEvent(2) },
-    });
+    // 重连 resync：尾页重放不得让已加载的更早消息消失。
+    await service.attach("s1");
+    const snapshot = service.snapshot("s1");
 
-    const snapshot = subject.snapshot("s1");
-    expect(snapshot?.running).toBe(true);
-    expect(snapshot?.lastSeq).toBe(2);
+    expect(userTexts(snapshot!)).toEqual([
+      "message-1",
+      "message-2",
+      "message-3",
+      "message-4",
+      "message-5",
+      "message-6",
+    ]);
   });
 
-  it("forget clears a session's fold and notes", async () => {
-    const subject = service(async <T>() => {
-      return { events: [{ event: userEvent(1, "a") }], hasMore: false } as T;
+  it("attach merges overlapping pages by seq without duplicating items", async () => {
+    const { client } = fakeClient(async (method, payload) => {
+      if (payload && typeof payload === "object" && "beforeSeq" in payload) {
+        return page(userEvents([5, 6, 7, 8]), false);
+      }
+      return page(userEvents([8, 9, 10]), true);
     });
-    await subject.attach("s1");
-    subject.pushNote("s1", "note");
-    subject.forget("s1");
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
+    const snapshot = await service.loadOlder("s1");
 
-    expect(subject.snapshot("s1")).toBeNull();
+    // seq 8 重叠：只保留一份。
+    expect(userTexts(snapshot)).toEqual([
+      "message-5",
+      "message-6",
+      "message-7",
+      "message-8",
+      "message-9",
+      "message-10",
+    ]);
+  });
+
+  it("applies live frames to an attached window and emits change", async () => {
+    const { client } = fakeClient(async () => page(userEvents([1]), true));
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
+    const onChange = vi.fn();
+    service.on("change", onChange);
+
+    service.applyFrame(frame("s1", userEvent(2, "message-2")));
+    service.applyFrame(frame("s1", userEvent(2, "message-2-stale"))); // 同 seq → 丢弃
+
+    const snapshot = service.snapshot("s1")!;
+    expect(userTexts(snapshot)).toEqual(["message-1", "message-2"]);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps agent-error notes alongside the pagination flag", async () => {
+    const { client } = fakeClient(async () =>
+      page(userEvents([1]), true),
+    );
+    const service = new ConversationService(() => client);
+    await service.attach("s1");
+    service.applyAgentError("s1", "boom");
+
+    const snapshot = service.snapshot("s1")!;
+
+    expect(snapshot.hasMore).toBe(true);
+    expect(snapshot.items.at(-1)).toEqual({
+      kind: "note",
+      text: "会话出错：boom",
+    });
+  });
+
+  it("snapshot returns null before attach", () => {
+    const { client } = fakeClient(async () => page([], false));
+    const service = new ConversationService(() => client);
+
+    expect(service.snapshot("unattached")).toBeNull();
   });
 });
