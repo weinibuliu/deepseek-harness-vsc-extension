@@ -27,6 +27,8 @@ import {
   SettingsService,
   deriveSettingsYamlPath,
 } from "./services/settings-service.ts";
+import { ExtensionPrefsService } from "./services/extension-prefs-service.ts";
+import { InitCommandService } from "./services/init-command-service.ts";
 import { ChatViewProvider } from "./webview/chat-view.ts";
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -81,6 +83,15 @@ export function activate(context: vscode.ExtensionContext): void {
     wire: () => dsh.client,
     onLog: (line) => log(line),
   });
+
+  // M7: 扩展自身偏好（轮播词库等，globalState 持久化）+ /init 命令生成器。
+  const prefs = new ExtensionPrefsService({
+    get: <T>(key: string, fallback: T) => context.globalState.get<T>(key, fallback),
+    // vscode Memento.update 返回 Thenable<void>；服务接口按 PromiseLike 收窄（唯一适配点）。
+    update: (key, value) =>
+      context.globalState.update(key, value) as unknown as PromiseLike<void>,
+  });
+  const initCommand = new InitCommandService();
 
   // M6: 面板 location 事实闭包（status/detail/launcher/推导的 settings.yaml 路径）。
   let lastStatusDetail: string | undefined;
@@ -287,6 +298,8 @@ export function activate(context: vscode.ExtensionContext): void {
     agentPresets,
     pending,
     settings,
+    prefs,
+    initCommand,
     dshFacts,
     pickDshPath,
     restartDsh,
@@ -371,6 +384,14 @@ export function activate(context: vscode.ExtensionContext): void {
         if (provider.selectedSessionId === null)
           void provider.autoAttachSession();
       });
+      // M7: 启动时自动检查 dsh 更新（开关开启时；默认关闭）。
+      if (
+        vscode.workspace
+          .getConfiguration("weinibuliu.dsh-vsc")
+          .get<boolean>("autoCheckUpdates", false)
+      ) {
+        void provider.runAutoUpdateCheck();
+      }
     }
     // M6: 面板打开时随状态翻转刷新（ready → Models 页；error → 引导页）。
     // ready 也推送面板，供「无可用 Provider」引导页在首启/重连后就绪态派生；

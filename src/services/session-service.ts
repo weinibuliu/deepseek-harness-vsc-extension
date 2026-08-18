@@ -167,6 +167,31 @@ export class SessionService {
     return archivedSessionIds;
   }
 
+  /**
+   * M7: 删除一条会话。rc7 的 wire 没有 session.delete RPC——后端存储同步的删除面
+   * 就是 workspace.archiveSession（会话从所有分组表面消失、注册表持久化；日志保留）。
+   * 契约跟随：删除 = 归档，UI 语义为「删除」。
+   */
+  async deleteSession(sessionId: string): Promise<readonly string[]> {
+    return await this.archiveSession(sessionId);
+  }
+
+  /**
+   * M7: 从源会话的某条用户消息处 Fork 一条新会话。`atSeq` 锚定切点（该消息的 seq；
+   * host 取 atSeq 及之后第一个 turn/end 为边界，即包含该消息所在的整轮）。
+   * 子会话继承源 cwd、最新模型与 parentSessionId 血统；种子前缀携带源标题。
+   */
+  async forkSession(
+    sessionId: string,
+    atSeq: number,
+  ): Promise<{ sessionId: string }> {
+    const client = this.requireClient();
+    return await client.call<{ sessionId: string }>("session.fork", {
+      sessionId,
+      atSeq,
+    });
+  }
+
   /** Rename a session (host normalizes the raw title); returns the accepted title. */
   async renameSession(sessionId: string, title: string): Promise<string> {
     const client = this.requireClient();

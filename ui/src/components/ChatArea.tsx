@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ConversationItem, ToolResultView } from '../../../src/shared/protocol.ts'
 import { MarkdownText, type MarkdownFileMentions } from '../markdown/MarkdownText.tsx'
+import { TypewriterWait } from './TypewriterWait.tsx'
 import {
   IconApiOutline14,
+  IconBranchOutline16,
   IconBrowseOutline16,
   IconCheckOutline14,
   IconChevronDownOutline14,
   IconChevronRightOutline14,
+  IconCopyOutline16,
   IconEditOutline16,
   IconLoadingOutline16,
   IconSearchOutline16,
@@ -14,8 +17,16 @@ import {
 } from '../../icons/index.tsx'
 
 interface ChatAreaProps {
+  /** M7: 当前会话 id（切换会话时定位到底部）。 */
+  sessionId: string | null
   items: ConversationItem[]
   running: boolean
+  /** M7: 是否还有更早的会话记录（false = 已显示全部对话）。 */
+  hasMore: boolean
+  /** M7: 等待轮播词库（TypewriterWait 消费）。 */
+  waitingLines: string[]
+  /** M7: 模型切换顶部提示（仅保留最近一次；null = 不显示）。 */
+  modelSwitchNotice: string | null
   /** M5: 工作区根路径（用于 tool 摘要路径相对化；缺席 = 原样显示）。 */
   workspacePath?: string
   /** M5b: 文件链接点击回调（webview → 扩展侧 openFile）。 */
@@ -24,6 +35,79 @@ interface ChatAreaProps {
   onOpenExternalUrl: (url: string) => void
   /** ADR-0004: 行内文件提及解析器（settled-only）。 */
   fileMentions: MarkdownFileMentions
+  /** M7: 接近顶部时加载更早的对话记录。 */
+  onLoadOlder: () => void
+  /** M7: 从某条用户消息 Fork（seq 为分叉锚点）。 */
+  onFork: (sessionId: string, seq: number, text: string) => void
+}
+
+/** M7: 复制到剪贴板（Markdown 原文）。优先 navigator.clipboard，退化 execCommand。 */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // 剪贴板权限被拒：走 execCommand 兜底。
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * M7: 复制按钮（2.5）——小图标 + hover tooltip「复制」，点击后短暂「✓ 已复制」（1.5 秒恢复）。
+ * 复制内容为对应消息的 Markdown 原文（代码块/列表/加粗等格式保留）。
+ */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+  }, [])
+
+  const copy = (): void => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) {
+        setFailed(true)
+        setCopied(false)
+        return
+      }
+      setFailed(false)
+      setCopied(true)
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+      timerRef.current = window.setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground opacity-60 hover:opacity-100"
+      title={failed ? '复制失败' : '复制'}
+      aria-label="复制"
+      onClick={copy}
+    >
+      {copied ? (
+        <span className="text-[10px] text-success">✓ 已复制</span>
+      ) : (
+        <IconCopyOutline16 size={12} />
+      )}
+    </button>
+  )
 }
 
 /**
@@ -56,10 +140,33 @@ function FileLink({ path, display, onOpen }: { path: string; display?: string; o
 }
 
 /** 用户消息：badge 底色气泡 + 圆角 2px（对齐 Cline UserMessage）。 */
-function UserItemView({ text }: { text: string }) {
+function UserItemView({
+  text,
+  onFork,
+}: {
+  text: string
+  onFork?: () => void
+}) {
   return (
-    <div className="my-1 whitespace-pre-wrap break-words rounded-xs bg-badge-background p-2.5 text-sm text-badge-foreground">
-      {text}
+    <div>
+      <div className="my-1 whitespace-pre-wrap break-words rounded-xs bg-badge-background p-2.5 text-sm text-badge-foreground">
+        {text}
+      </div>
+      {/* M7: 消息操作行——复制（Markdown 原文）+ Fork（从该消息分叉）。 */}
+      <div className="mt-1 flex items-center gap-1.5">
+        <CopyButton text={text} />
+        {onFork ? (
+          <button
+            type="button"
+            className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground opacity-60 hover:opacity-100"
+            title="Fork 对话"
+            aria-label="Fork 对话"
+            onClick={onFork}
+          >
+            <IconBranchOutline16 size={12} />
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -144,7 +251,8 @@ function ThinkingSection({ reasoning, streaming }: { reasoning: string; streamin
   )
 }
 
-/** 助手消息：思考块（可折叠）+ markdown 正文（ADR-0004）+ 流式光标。 */
+/** 助手消息：思考块（可折叠）+ markdown 正文（ADR-0004）+ 流式光标。
+ *  M7: 最终回复下方显示复制按钮（复制 Markdown 原文；中间思考/工具过程不复制）。 */
 function AssistantItemView({
   item, onOpenExternalUrl, fileMentions,
 }: {
@@ -163,7 +271,11 @@ function AssistantItemView({
       />
       {item.partial ? (
         <span className="ml-0.5 inline-block h-[1em] w-0.5 animate-cursor-blink bg-foreground align-text-bottom" />
-      ) : null}
+      ) : (
+        <div className="mt-1 flex items-center gap-1.5">
+          <CopyButton text={item.text} />
+        </div>
+      )}
     </div>
   )
 }
@@ -584,17 +696,24 @@ function ToolCardView({
 }
 
 function ItemView({
-  item, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions,
+  item, sessionId, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions, onFork,
 }: {
   item: ConversationItem
+  sessionId: string | null
   workspacePath?: string
   onOpenFile: (path: string) => void
   onOpenExternalUrl: (url: string) => void
   fileMentions: MarkdownFileMentions
+  onFork: (sessionId: string, seq: number, text: string) => void
 }) {
   switch (item.kind) {
     case 'user':
-      return <UserItemView text={item.text} />
+      return (
+        <UserItemView
+          text={item.text}
+          onFork={sessionId === null ? undefined : () => onFork(sessionId, item.seq, item.text)}
+        />
+      )
     case 'assistant':
       return <AssistantItemView item={item} onOpenExternalUrl={onOpenExternalUrl} fileMentions={fileMentions} />
     case 'note':
@@ -610,8 +729,103 @@ function ItemView({
   }
 }
 
-export function ChatArea({ items, running, workspacePath, onOpenFile, onOpenExternalUrl, fileMentions }: ChatAreaProps) {
+/** M7: 首条消息的稳定 id（无限滚动锚定比较用；无稳定 id 时按位置回落）。 */
+function firstItemId(items: ConversationItem[]): string | null {
+  const first = items[0]
+  if (!first) return null
+  if (first.kind === 'tool') return `tool:${first.callId}`
+  if (first.kind === 'command') return `command:${first.commandId}`
+  if (first.kind === 'user') return `user:${first.seq}`
+  return 'position:0'
+}
+
+export function ChatArea({
+  sessionId,
+  items,
+  running,
+  hasMore,
+  waitingLines,
+  modelSwitchNotice,
+  workspacePath,
+  onOpenFile,
+  onOpenExternalUrl,
+  fileMentions,
+  onLoadOlder,
+  onFork,
+}: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const loadingOlderRef = useRef(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [showBackToBottom, setShowBackToBottom] = useState(false)
+  const prevFirstRef = useRef<string | null>(null)
+  const prevScrollHeightRef = useRef(0)
+
+  /** M7: 接近顶部哨兵 → 加载更早记录（IntersectionObserver + 手动复查兜底）。 */
+  const maybeLoadOlder = useCallback((): void => {
+    const el = scrollRef.current
+    const sentinel = sentinelRef.current
+    if (!el || !sentinel) return
+    if (!hasMore || loadingOlderRef.current) return
+    const rootRect = el.getBoundingClientRect()
+    const rect = sentinel.getBoundingClientRect()
+    if (rect.top <= rootRect.bottom + 120) {
+      loadingOlderRef.current = true
+      setLoadingOlder(true)
+      onLoadOlder()
+    }
+  }, [hasMore, onLoadOlder])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    const sentinel = sentinelRef.current
+    if (!el || !sentinel) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) maybeLoadOlder()
+      },
+      { root: el, rootMargin: '120px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [maybeLoadOlder])
+
+  // M7: 快照到达 → 解除加载态；若仍贴着顶部且还有更早记录 → 继续加载（哨兵未触发新事件时兜底）。
+  useEffect(() => {
+    loadingOlderRef.current = false
+    setLoadingOlder(false)
+    const frame = window.requestAnimationFrame(() => maybeLoadOlder())
+    return () => window.cancelAnimationFrame(frame)
+  }, [items, maybeLoadOlder])
+
+  // M7: 向上滚动离开底部超过 200px → 显示回到底部按钮。
+  const updateBackToBottom = useCallback((): void => {
+    const el = scrollRef.current
+    if (!el) return
+    setShowBackToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 200)
+  }, [])
+
+  // 2.8: 切换会话 → 默认定位到底部（即时，无闪烁）。
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    setShowBackToBottom(false)
+  }, [sessionId])
+
+  // M7: 顶部插入更早记录 → 按高度差锚定阅读位置（加载不跳动）。
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const firstId = firstItemId(items)
+    const prevFirst = prevFirstRef.current
+    if (prevFirst !== null && firstId !== null && firstId !== prevFirst && items.length > 0) {
+      const delta = el.scrollHeight - prevScrollHeightRef.current
+      if (delta > 0) el.scrollTop += delta
+    }
+    prevFirstRef.current = firstId
+    prevScrollHeightRef.current = el.scrollHeight
+  }, [items])
 
   // Streaming: keep the newest content in view (sticky when the user is
   // already at the bottom).
@@ -619,42 +833,92 @@ export function ChatArea({ items, running, workspacePath, onOpenFile, onOpenExte
     const el = scrollRef.current
     if (!el) return
     const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 64
-    if (stick) el.scrollTop = el.scrollHeight
+    if (stick) {
+      el.scrollTop = el.scrollHeight
+      setShowBackToBottom(false)
+    }
   }, [items])
 
+  // M7: 流式正文已可见时轮播让位（回复真正到达前显示轮播打字机）。
+  const lastItem = items[items.length - 1]
+  const streamingText =
+    lastItem?.kind === 'assistant' && lastItem.partial && lastItem.text.length > 0
+
   return (
-    <div ref={scrollRef} className="scrollable min-h-0 flex-1 overflow-y-auto">
-      {items.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="px-6 text-center text-sm text-description">
-            {running ? '回复中…' : '选择一个会话，或点击 ＋ 新建。'}
-          </p>
-        </div>
-      ) : (
-        <div className="px-4 pb-2">
-          {items.map((item, i) => (
-            // M5b: tool/command 用稳定业务 id 做 key（折叠状态随卡保留，不被位置键错位）。
-            <div
-              key={item.kind === 'tool' ? item.callId : item.kind === 'command' ? item.commandId : i}
-              className="pt-2.5"
-            >
-              <ItemView
-                item={item}
-                workspacePath={workspacePath}
-                onOpenFile={onOpenFile}
-                onOpenExternalUrl={onOpenExternalUrl}
-                fileMentions={fileMentions}
-              />
-            </div>
-          ))}
-          {running ? (
-            <div className="flex items-center gap-1.5 pt-2.5 text-xs text-description">
-              <IconLoadingOutline16 size={12} className="shrink-0 animate-spin" />
-              回复中…
-            </div>
-          ) : null}
-        </div>
-      )}
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        ref={scrollRef}
+        onScroll={updateBackToBottom}
+        className="scrollable min-h-0 flex-1 overflow-y-auto"
+      >
+        {/* M7: 顶部哨兵（IntersectionObserver 触发加载更早记录）+ 加载指示器。 */}
+        <div ref={sentinelRef} className="h-px" aria-hidden />
+        {loadingOlder ? (
+          <div className="flex items-center justify-center gap-1.5 pt-2.5 text-xs text-description">
+            <IconLoadingOutline16 size={12} className="shrink-0 animate-spin" />
+            加载更早的对话…
+          </div>
+        ) : null}
+        {items.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            {running ? (
+              // M7: 空会话等待期同样走轮播打字机（替代固定「回复中…」）。
+              <TypewriterWait lines={waitingLines} />
+            ) : (
+              <p className="px-6 text-center text-sm text-description">
+                选择一个会话，或点击 ＋ 新建。
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="px-4 pb-2">
+            {/* M7: 已显示全部对话（更早记录全部加载完毕的明确视觉提示）。 */}
+            {!hasMore && !loadingOlder ? (
+              <div className="pt-2.5 text-center text-xs text-description">已显示全部对话</div>
+            ) : null}
+            {/* M7: 模型切换提示——消息流最顶端一行小字（2.1：12px #999 居中）。 */}
+            {modelSwitchNotice !== null ? (
+              <div style={{ fontSize: 12, color: '#999', textAlign: 'center' }} className="pt-2.5">
+                {modelSwitchNotice}
+              </div>
+            ) : null}
+            {items.map((item, i) => (
+              // M5b: tool/command 用稳定业务 id 做 key（折叠状态随卡保留，不被位置键错位）。
+              <div
+                key={item.kind === 'tool' ? item.callId : item.kind === 'command' ? item.commandId : i}
+                className="pt-2.5"
+              >
+                <ItemView
+                  item={item}
+                  sessionId={sessionId}
+                  workspacePath={workspacePath}
+                  onOpenFile={onOpenFile}
+                  onOpenExternalUrl={onOpenExternalUrl}
+                  fileMentions={fileMentions}
+                  onFork={onFork}
+                />
+              </div>
+            ))}
+            {/* M7: 等待轮播打字机（2.4）——回复真正到达前取代固定 loading。 */}
+            {running && !streamingText ? <TypewriterWait lines={waitingLines} /> : null}
+          </div>
+        )}
+      </div>
+      {/* M7: 回到底部按钮（2.6）——圆形下箭头 + 平滑滚动，到底后自动隐藏。 */}
+      {showBackToBottom ? (
+        <button
+          type="button"
+          className="absolute bottom-3 right-3 z-10 flex size-11 items-center justify-center rounded-full border border-border-panel bg-background text-icon-foreground shadow-md hover:bg-list-hover"
+          title="回到底部"
+          aria-label="回到底部"
+          onClick={() => {
+            const el = scrollRef.current
+            if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+          }}
+        >
+          <IconChevronDownOutline14 size={16} />
+        </button>
+      ) : null}
     </div>
   )
 }

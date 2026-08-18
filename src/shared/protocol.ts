@@ -113,7 +113,17 @@ export type ExtensionToWebviewMessage =
       ok: false;
       text: string;
       conflict?: boolean;
-    };
+    }
+  // M7: 模型切换成功的顶部提示（消息流最顶端一行小字；仅保留最近一次）。
+  | { type: "modelSwitched"; sessionId: string | null; label: string }
+  // M7: 扩展自身偏好（轮播词库等；hydrate/变更后推送，聊天页 TypewriterWait 也消费）。
+  | { type: "extensionPrefs"; prefs: ExtensionPrefsView }
+  // M7: 会话已删除（webview 清理该会话的全部临时状态）。
+  | { type: "sessionDeleted"; sessionId: string }
+  // M7: Fork 成功：新会话已创建并选中；text 自动填入新会话输入框（草稿由 webview 落位）。
+  | { type: "forkAccepted"; sourceSessionId: string; sessionId: string; text: string }
+  // M7: Fork 失败（fork-unavailable / 传输失败等；经 commandNotice 样式直送源会话）。
+  | { type: "forkFailed"; sourceSessionId: string; text: string };
 
 /** Messages the webview sends to the extension. */
 export type WebviewToExtensionMessage =
@@ -249,6 +259,20 @@ export type WebviewToExtensionMessage =
   | { type: "openInBrowser" }
   // M6: 关于页「repo 链接」→ 扩展侧在系统浏览器打开指定 URL。
   | { type: "openExternalUrl"; url: string }
+  // M7: 向上滚动接近顶部时自动加载更早的对话记录（会话历史无限滚动）。
+  | { type: "loadOlder"; sessionId: string }
+  // M7: 删除一条会话（后端存储同步；活动会话拒绝）。
+  | { type: "deleteSession"; sessionId: string }
+  // M7: 从某条用户消息处 Fork 一条新会话（继承该消息及之前的上下文；text 自动填入新输入框）。
+  | { type: "forkSession"; sessionId: string; seq: number; text: string }
+  // M7: 通用 settings 卡片字段写操作（plugin 注册的任意 namespace 卡片）。
+  | { type: "settingsMutate"; id: number; request: SettingsMutateRequest }
+  // M7: 保存轮播词库（扩展 globalState 持久化）。
+  | { type: "settingsSetWaitingLines"; lines: string[] }
+  // M7: 手动检查 dsh 更新（npm registry 查询；应答经 settingsReply.value）。
+  | { type: "settingsCheckUpdate"; id: number }
+  // M7: 自动检查更新开关（写 weinibuliu.dsh-vsc.autoCheckUpdates）。
+  | { type: "settingsSetAutoCheckUpdates"; enabled: boolean }
   // M5b: 对话流文件链接点击 → 扩展侧在当前 VS Code 窗口打开对应文件
   // （tool 卡片路径 / 工作区指令 change.path；相对路径以工作区根为锚）。
   | { type: "openFile"; path: string };
@@ -321,7 +345,7 @@ export interface SessionActivityView {
  * sources and the `tool/call` / `tool/result` pair.
  */
 export type ConversationItem =
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; seq: number }
   | { kind: "assistant"; text: string; reasoning?: string; partial: boolean }
   | { kind: "note"; text: string }
   // M3b: 一次命令生命周期节点（run 创建、done 原位更新结果；done 先到则 name/args 为 null）。
@@ -436,6 +460,8 @@ export interface ConversationSnapshot {
   items: ConversationItem[];
   running: boolean;
   lastSeq: number;
+  /** M7: 是否还存在更早的会话记录（false = 已显示全部对话）。 */
+  hasMore: boolean;
 }
 
 // ---- M3c: 上下文注入节点（非用户 user/message；provenance 与 body 全部 fold 解析）----
@@ -659,6 +685,112 @@ export interface BusyEnterView {
   revision: number;
 }
 
+// ---- M7: plugin 注册的 settings 配置卡片（rc7 卡片机制跟进）----
+
+/**
+ * 通用卡片的一个可编辑字段（扩展侧从 serialized schemastery envelope 派生，
+ * webview 纯渲染、绝不解析 schema）。字段路径以 namespace 根为锚。
+ */
+export type SettingsFieldView =
+  | {
+      kind: "string";
+      path: string[];
+      label: string;
+      description?: string;
+      value: string;
+      /** user 层显式覆盖（可 reset 回 base/默认）。 */
+      overridden: boolean;
+    }
+  | {
+      kind: "number";
+      path: string[];
+      label: string;
+      description?: string;
+      value: number | undefined;
+      overridden: boolean;
+    }
+  | {
+      kind: "boolean";
+      path: string[];
+      label: string;
+      description?: string;
+      value: boolean;
+      overridden: boolean;
+    }
+  | {
+      kind: "enum";
+      path: string[];
+      label: string;
+      description?: string;
+      value: string;
+      options: { id: string; label: string }[];
+      overridden: boolean;
+    }
+  | {
+      kind: "secret";
+      path: string[];
+      label: string;
+      description?: string;
+      /** 槽位当前是否已配置（值永不跨线）。 */
+      set: boolean;
+    }
+  | {
+      kind: "json";
+      path: string[];
+      label: string;
+      description?: string;
+      value: unknown;
+      overridden: boolean;
+    };
+
+/** 一个 plugin 注册的 settings 配置卡片（数据面；webview 渲染标题 + 字段列表）。 */
+export interface SettingsCardView {
+  /** namespace 键（写操作的目标）。 */
+  ns: string;
+  /** 卡片标题（webview 展示；缺省回落 ns）。 */
+  title: string;
+  /** 卡片副标题（schema 根 meta.description 或缺席）。 */
+  description?: string;
+  /** 变更生效时机。 */
+  applies: "live" | "restart";
+  /** 可编辑字段（schema 派生；空列表 = 该卡片无可编辑字段，仍展示说明）。 */
+  fields: SettingsFieldView[];
+  /** 原始 user 层的单调 revision（写回作 expectedRevision）。 */
+  revision: number;
+}
+
+/** 通用卡片的字段写操作请求（path ops，conflict = revision 失配）。 */
+export interface SettingsMutateOp {
+  op: "set" | "unset";
+  path: string[];
+  value?: unknown;
+}
+
+export interface SettingsMutateRequest {
+  ns: string;
+  ops: SettingsMutateOp[];
+  expectedRevision: number;
+}
+
+/** 扩展自身偏好（globalState 持久化；聊天页 TypewriterWait 与设置页共享）。 */
+export interface ExtensionPrefsView {
+  /** 等待轮播词库（增/删/改后持久化；空数组 = 回落静态「回复中…」）。 */
+  waitingLines: string[];
+  /** 启动时自动检查 dsh 更新（weinibuliu.dsh-vsc.autoCheckUpdates）。 */
+  autoCheckUpdates: boolean;
+}
+
+/** dsh 更新检查状态（npm registry 查询当前/最新版本对比）。 */
+export interface UpdateCheckView {
+  /** 当前 dsh 版本（未探测到 = 空串）。 */
+  currentVersion: string;
+  /** npm registry 报告的最新版本（仅 update/latest 态存在）。 */
+  latestVersion?: string;
+  /** 网络/解析失败文案（仅 error 态存在）。 */
+  error?: string;
+  state: "idle" | "checking" | "latest" | "update" | "error";
+}
+
 // ---- M4b: todo 计划条（todos 投影；镜像 dsh-session TodoItem，契约跟随）----
 
 /**
@@ -785,6 +917,12 @@ export interface SettingsPanelView {
   permissionDefault?: PermissionDefaultView;
   /** 「通用」页繁忙时 Enter 键行为（ui-conversation namespace；缺席 = 回落 queue）。 */
   busyEnter?: BusyEnterView;
+  /** M7: plugin 注册的 settings 配置卡片（llm-pi-ai/permission 为专用卡，其余 namespace 由 schema 派生通用卡）。 */
+  cards: SettingsCardView[];
+  /** M7: 扩展自身偏好（轮播词库 + 自动更新检查开关）。 */
+  extensionPrefs: ExtensionPrefsView;
+  /** M7: dsh 更新检查状态（当前/最新版本对比；checking 由手动/自动检查翻转）。 */
+  update: UpdateCheckView;
 }
 
 /** host.describe 视图（dsh 包页：host 运行时事实）。 */

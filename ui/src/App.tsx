@@ -16,6 +16,7 @@ import type {
   ComposerSubmitGesture,
   ConversationSnapshot,
   DiscoveredModelView,
+  ExtensionPrefsView,
   ExtensionToWebviewMessage,
   PendingAnswer,
   PendingItemView,
@@ -26,6 +27,7 @@ import type {
   SettingsPanelView,
   SkillsSnapshot,
   TodoItem,
+  UpdateCheckView,
   UsageStatsView,
   WebviewToExtensionMessage,
   WorkspaceView,
@@ -102,6 +104,10 @@ export default function App() {
   const [agentPresetsBySession, setAgentPresetsBySession] = useState<Record<string, AgentPresetSelectView | null>>({})
   // 用量统计 chip + modal（token/时间/context 四投影组合；null = 全缺席 → chip 隐藏）。
   const [statsBySession, setStatsBySession] = useState<Record<string, UsageStatsView | null>>({})
+  // M7: 每 composer 槽位的模型切换提示（消息流最顶端一行小字；仅保留最近一次）。
+  const [modelSwitchBySession, setModelSwitchBySession] = useState<Record<string, string>>({})
+  // M7: 扩展自身偏好（轮播词库等；hydrate/变更推送）。
+  const [extensionPrefs, setExtensionPrefs] = useState<ExtensionPrefsView>({ waitingLines: [], autoCheckUpdates: false })
   // M6: 设置面板视图切换 + 面板数据 + settingsReply 应答关联。
   const [view, setView] = useState<'chat' | 'settings'>('chat')
   // 无可用 Provider 引导页的「稍后配置」暂离标记；仅在真正的重开（boot/终态）时重置，
@@ -189,7 +195,10 @@ export default function App() {
             return { ...prev, [key]: null }
           })
           if (message.status === 'accepted') {
-            setCommitSeqBySession((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }))
+            // M7: 模型切换不清空草稿（2.2 保留输入与光标）——仅 send/command 结算清空。
+            if (message.operation === 'send' || message.operation === 'command') {
+              setCommitSeqBySession((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }))
+            }
           } else if (message.text) {
             setNoticesBySession((prev) => ({
               ...prev,
@@ -252,6 +261,47 @@ export default function App() {
         case 'stats':
           setStatsBySession((prev) => ({ ...prev, [message.sessionId]: message.stats }))
           break
+        case 'modelSwitched':
+          // M7: 顶部切换提示仅保留最近一次（同槽位覆盖）。
+          setModelSwitchBySession((prev) => ({ ...prev, [composerKey(message.sessionId)]: message.label }))
+          break
+        case 'extensionPrefs':
+          setExtensionPrefs(message.prefs)
+          break
+        case 'sessionDeleted': {
+          const key = composerKey(message.sessionId)
+          setComposerKeys((prev) => prev.filter((item) => item !== key))
+          setDrafts((prev) => omitKey(prev, key))
+          setAtCandidatesBySession((prev) => omitKey(prev, key))
+          setAtInsertBySession((prev) => omitKey(prev, key))
+          setCommandsBySession((prev) => omitKey(prev, key))
+          setSkillsBySession((prev) => omitKey(prev, key))
+          setModelsBySession((prev) => omitKey(prev, key))
+          setNoticesBySession((prev) => omitKey(prev, key))
+          setOperationsBySession((prev) => omitKey(prev, key))
+          setCommitSeqBySession((prev) => omitKey(prev, key))
+          setActivityBySession((prev) => omitKey(prev, key))
+          setReadEndSeq((prev) => omitKey(prev, key))
+          setReadErrorSeq((prev) => omitKey(prev, key))
+          setPermissionsBySession((prev) => omitKey(prev, key))
+          setAgentPresetsBySession((prev) => omitKey(prev, key))
+          setStatsBySession((prev) => omitKey(prev, key))
+          setModelSwitchBySession((prev) => omitKey(prev, key))
+          setConversations((prev) => omitKey(prev, message.sessionId))
+          break
+        }
+        case 'forkAccepted': {
+          const key = composerKey(message.sessionId)
+          setComposerKeys((prev) => prev.includes(key) ? prev : [...prev, key])
+          setDrafts((prev) => ({ ...prev, [key]: message.text }))
+          break
+        }
+        case 'forkFailed':
+          setNoticesBySession((prev) => {
+            const key = composerKey(message.sourceSessionId)
+            return { ...prev, [key]: [...(prev[key] ?? []).slice(-4), { level: 'error', text: message.text, id: Date.now() }] }
+          })
+          break
         case 'settings':
           setSettingsPanel(message.panel)
           break
@@ -312,6 +362,14 @@ export default function App() {
       requestReply((id) => post({ type: 'settingsSelectPermissionDefault', id, preset, expectedRevision })),
     selectBusyEnter: (behavior, expectedRevision) =>
       requestReply((id) => post({ type: 'settingsSelectBusyEnter', id, behavior, expectedRevision })),
+    mutateField: (request) => requestReply((id) => post({ type: 'settingsMutate', id, request })),
+    setWaitingLines: (lines) => post({ type: 'settingsSetWaitingLines', lines }),
+    checkUpdate: async () => {
+      const reply = await requestReply((id) => post({ type: 'settingsCheckUpdate', id }))
+      if (!reply.ok) throw new Error(reply.text)
+      return (reply.value ?? null) as UpdateCheckView | null
+    },
+    setAutoCheckUpdates: (enabled) => post({ type: 'settingsSetAutoCheckUpdates', enabled }),
     openSettingsYaml: () => post({ type: 'openSettingsYaml' }),
     openExtensionSettings: () => post({ type: 'openExtensionSettings' }),
     refresh: () => post({ type: 'settingsRefresh' }),
@@ -365,6 +423,21 @@ export default function App() {
 
   const handleCancel = useCallback((sessionId: string): void => {
     post({ type: 'cancel', sessionId })
+  }, [post])
+
+  // M7: 无限滚动——接近顶部时加载更早的对话记录（扩展侧裁决去重）。
+  const handleLoadOlder = useCallback((sessionId: string): void => {
+    post({ type: 'loadOlder', sessionId })
+  }, [post])
+
+  // M7: 删除会话（确认由调用方 UI 完成；扩展侧二次核验活动态）。
+  const handleDeleteSession = useCallback((sessionId: string): void => {
+    post({ type: 'deleteSession', sessionId })
+  }, [post])
+
+  // M7: Fork 会话——该消息为分叉锚点，文本自动填入新会话输入框。
+  const handleFork = useCallback((sessionId: string, seq: number, text: string): void => {
+    post({ type: 'forkSession', sessionId, seq, text })
   }, [post])
 
   // M5b: 对话流文件链接点击 → 扩展侧在当前窗口打开对应文件。
@@ -548,14 +621,25 @@ export default function App() {
           onSelectSession={handleSelectSession}
           onArchiveSession={handleArchiveSession}
           onRenameSession={handleRenameSession}
+          onDeleteSession={handleDeleteSession}
         />
         <ChatArea
+          sessionId={selectedSessionId}
           items={selected?.items ?? []}
           running={selectedRunning}
+          hasMore={selected?.hasMore ?? false}
+          waitingLines={extensionPrefs.waitingLines}
+          modelSwitchNotice={
+            selectedSessionId === null
+              ? modelSwitchBySession[UNBOUND_COMPOSER] ?? null
+              : modelSwitchBySession[selectedSessionId] ?? null
+          }
           workspacePath={workspace?.path}
           onOpenFile={handleOpenFile}
           onOpenExternalUrl={handleOpenExternalUrl}
           fileMentions={fileMentions}
+          onLoadOlder={() => selectedSessionId && handleLoadOlder(selectedSessionId)}
+          onFork={handleFork}
         />
       </div>
       {pendingBlocked ? (

@@ -135,6 +135,20 @@
           "default": true,
           "scope": "machine",
           "description": "Resolve and connect to the global DSH runtime when a workspace window opens."
+        },
+        "weinibuliu.dsh-vsc.maxParallelSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "scope": "window",
+          "description": "同时运行（生成中）的对话数量上限。达到上限后新建对话或在新会话发送会被拒绝，等待中的对话在后台继续运行。"
+        },
+        "weinibuliu.dsh-vsc.autoCheckUpdates": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "启动时自动检查 dsh 是否有可用更新（查询 npm registry）。"
         }
       }
     }

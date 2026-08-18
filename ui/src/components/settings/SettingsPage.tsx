@@ -1,7 +1,8 @@
 /**
- * 设置面板（M6）：webview 内整页覆盖页，左侧两级导航 + 内容区：
- *   - 「模型」→ Models 设置页（服务未就绪时显示空态）
- *   - 「关于」→ AboutPage（插件版本号 + 源码仓库链接 + dsh package 信息）
+ * 设置面板（M6 → M7 重构）：rc7 支持 plugin 注册 settings 配置卡片——本页跟进为
+ * 卡片驱动导航：左侧导航 = 固定页（模型 / 通用 / 扩展 / 关于）+ 每个 plugin 注册
+ * namespace 的一张卡片（扩展侧从 settings.describe 的 schema 信封派生字段列表，
+ * webview 纯渲染）。新增插件注册的 settings namespace 无需扩展发版即自动出现。
  * 顶栏 = 返回 + 标题 + 刷新。首次收到面板视图时按就绪态默认选中（之后手动切换不被跳转）。
  */
 
@@ -11,9 +12,18 @@ import { statusCopy } from '../../statusCopy.ts'
 import { AboutPage } from './AboutPage.tsx'
 import { GeneralSettings } from './GeneralSettings.tsx'
 import { ModelsSettings } from './ModelsSettings.tsx'
+import { ExtensionCard } from './ExtensionCard.tsx'
+import { GenericSettingsCard } from './GenericSettingsCard.tsx'
 import type { SettingsWire } from './wire.ts'
 
-type Section = 'models' | 'general' | 'about'
+/** 固定页 id；通用卡片用 `ns:<namespace>` 作 id（冲突不可能：固定页无冒号）。 */
+const MODELS = 'models'
+const GENERAL = 'general'
+const EXTENSION = 'extension'
+const ABOUT = 'about'
+const genericSectionId = (ns: string): string => `ns:${ns}`
+
+type Section = string
 
 interface SettingsPageProps {
   panel: SettingsPanelView | null
@@ -55,8 +65,32 @@ function GeneralIcon() {
   )
 }
 
+/** 插件配置卡片图标：卡片轮廓。 */
+function CardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 6.5H13.5" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+/** 扩展菜单项图标：拼图（扩展自身偏好 + 更新检查）。 */
+function ExtensionIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
+      <path
+        d="M6.5 2.5a1.5 1.5 0 0 1 3 0V3h4v10h-4v.5a1.5 1.5 0 0 1-3 0V13h-4V3h4v-.5z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsPageProps) {
-  const [section, setSection] = useState<Section>('models')
+  const [section, setSection] = useState<Section>(MODELS)
   const [initialized, setInitialized] = useState(false)
 
   // 首次收到面板视图时按就绪态默认选中（之后手动切换不被跳转）。
@@ -64,7 +98,7 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
     if (panel !== null && !initialized) {
       setInitialized(true)
       const ready = panel.status === 'ready' || panel.status === 'reconnecting'
-      setSection(ready ? 'models' : 'about')
+      setSection(ready ? MODELS : ABOUT)
     }
   }, [panel, initialized])
 
@@ -115,16 +149,18 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左侧导航：宽度只够容纳 label（w-fit），窗口过窄（≤240px）时折叠为纯图标 */}
-        <nav className="flex w-fit max-[240px]:w-8 flex-none flex-col gap-0.5 border-r border-border-panel p-1.5 max-[240px]:p-1">
-          {navItem('models', <ModelIcon />, '模型')}
-          {navItem('general', <GeneralIcon />, '通用')}
-          {navItem('about', <InfoIcon />, '关于')}
+        {/* 左侧导航：固定页 + plugin 注册的配置卡片（动态）；过窄（≤240px）折叠为纯图标 */}
+        <nav className="flex w-fit max-[240px]:w-8 flex-none flex-col gap-0.5 overflow-y-auto border-r border-border-panel p-1.5 max-[240px]:p-1">
+          {navItem(MODELS, <ModelIcon />, '模型')}
+          {navItem(GENERAL, <GeneralIcon />, '通用')}
+          {panel?.cards.map((card) => navItem(genericSectionId(card.ns), <CardIcon />, card.title))}
+          {navItem(EXTENSION, <ExtensionIcon />, '扩展')}
+          {navItem(ABOUT, <InfoIcon />, '关于')}
         </nav>
 
         {/* 内容区 */}
         <div className="min-w-0 flex-1 overflow-hidden">
-          {section === 'models' ? (
+          {section === MODELS ? (
             panel === null ? (
               <p className="px-3 py-2 text-xs text-description">加载中…</p>
             ) : showModels ? (
@@ -146,14 +182,33 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
                 ) : null}
               </div>
             )
-          ) : section === 'general' ? (
+          ) : section === GENERAL ? (
             panel === null ? (
               <p className="px-3 py-2 text-xs text-description">加载中…</p>
             ) : (
               <GeneralSettings panel={panel} wire={wire} />
             )
-          ) : (
+          ) : section === EXTENSION ? (
+            panel === null ? (
+              <p className="px-3 py-2 text-xs text-description">加载中…</p>
+            ) : (
+              <ExtensionCard panel={panel} wire={wire} />
+            )
+          ) : section === ABOUT ? (
             <AboutPage panel={panel} wire={wire} onOpenInBrowser={onOpenInBrowser} />
+          ) : (
+            (() => {
+              const card = panel?.cards.find((candidate) => genericSectionId(candidate.ns) === section)
+              return panel === null ? (
+                <p className="px-3 py-2 text-xs text-description">加载中…</p>
+              ) : card !== undefined ? (
+                <GenericSettingsCard card={card} writable={panel.writable} wire={wire} />
+              ) : (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-description">该配置卡片当前不可用。</p>
+                </div>
+              )
+            })()
           )}
         </div>
       </div>

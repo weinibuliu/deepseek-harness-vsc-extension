@@ -20,6 +20,13 @@ The Project is **Visual Studio Code Extension** provides additional features for
 - Feeling of current focus 当前焦点感知
 - Problems from editor 编辑器问题
 - Agent Preset selector for blank sessions 空白会话模式选择器
+- Plugin-registered settings cards (rc7) 插件注册的设置卡片（rc7）
+- Conversation history panel / delete / fork 对话历史面板 / 删除 / Fork
+- Parallel conversations (cap 5) 多对话并行（上限 5）
+- Infinite history scroll + back-to-bottom 历史无限滚动 + 回到底部
+- Copy (Markdown) / model-switch notice / rotating typewriter wait 复制（Markdown）/ 模型切换提示 / 轮播打字机等待
+- `/init` command (AGENTS.md) `/init` 命令（生成 AGENTS.md）
+- DSH update check (npm registry) DSH 更新检查（npm registry）
 
 ## Install
 
@@ -50,7 +57,7 @@ npx @deepseek-ai/dsh
 >
 > 由于 DeepSeek Harness 有可能发生破坏性变更，本拓展或许仅能与特定版本的 dsh 一起正常运行。
 >
-> Test Passed Version: 0.1.0-rc.6
+> Test Passed Version: 0.1.0-rc.6 / 0.1.0-rc.7
 
 ## TODO
 
@@ -63,7 +70,8 @@ We are trying to make this project better, including following the dsh and addin
 - [x] Display usage 显示用量
 - [x] Context usage 显示上下文
 - [x] Agent preset Agent 预设 (PTC 模式等)
-- [ ] Fork session fork 会话
+- [x] Fork session fork 会话
+- [x] Settings cards (plugin-registered, rc7) 设置卡片（rc7 插件注册）
 - [ ] Changes list 产物列表
 - [ ] SubAgents management SubAgent 管理
 - [ ] Plugin management 插件管理

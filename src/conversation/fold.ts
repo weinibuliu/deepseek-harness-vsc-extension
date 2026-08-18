@@ -728,8 +728,9 @@ export class ConversationFold {
         if (isCompactCheckpoint(source)) break;
         if (source === null || readString(source, "kind") === "user") {
           // 真实用户消息（source.kind='user'，或 source 缺失时按用户消息处理）。
+          // M7: seq 随行（Fork 按钮以该消息 seq 为分叉锚点）。
           const { text } = extractContent(data.content ?? []);
-          this.items.push({ kind: "user", text });
+          this.items.push({ kind: "user", text, seq: event.seq });
         } else {
           // 上下文注入节点：provenance（角色 + 生产者名原样）+ form 预解析正文。
           const { text } = extractContent(data.content ?? []);
@@ -967,7 +968,7 @@ export class ConversationFold {
     return this.revision !== before;
   }
 
-  snapshot(): ConversationSnapshot {
+  snapshot(): Omit<ConversationSnapshot, "hasMore"> {
     return {
       items: [...this.items],
       running: this.running,
