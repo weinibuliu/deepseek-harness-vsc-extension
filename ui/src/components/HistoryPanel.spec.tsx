@@ -141,4 +141,24 @@ describe('HistoryPanel', () => {
     fireEvent.click(view.getByText('归档'))
     expect(onArchiveSession).toHaveBeenCalledWith('s-aaa')
   })
+
+  it('shows 10 sessions per batch and appends the next batch when scrolled to the bottom', () => {
+    const many: SessionSummary[] = Array.from({ length: 25 }, (_, i) => ({
+      sessionId: `s-${i}`,
+      updatedAt: i,
+      running: false,
+      blank: false,
+    }))
+    const { view } = renderPanel({ sessions: many, activities: {} })
+
+    // 行元素带显式 role="button"（菜单/删除按钮无该属性）→ 计数 = 会话行数。
+    expect(view.container.querySelectorAll('[role="button"]')).toHaveLength(10)
+    expect(view.getByText('已显示 10 / 25 条（继续下滑加载更多）')).toBeTruthy()
+
+    // 滚动到底 → 追加下一批 10 条。
+    const list = view.container.querySelector('.overflow-y-auto') as HTMLElement
+    expect(list).toBeTruthy()
+    fireEvent.scroll(list)
+    expect(view.container.querySelectorAll('[role="button"]')).toHaveLength(20)
+  })
 })

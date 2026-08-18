@@ -47,6 +47,9 @@ function formatTime(epochMs: number): string {
  * 可伸入对话界面），z-40 盖在一切内容之上；展开时监听 Escape / 外部 mousedown /
  * 窗口 resize（重算锚点）关闭，卡片内部点击不关闭。
  */
+/** 每批渲染的会话条目数（滚动到底部自动加一批）。 */
+const PAGE_SIZE = 10
+
 export function HistoryPanel({
   open,
   sessions,
@@ -64,6 +67,8 @@ export function HistoryPanel({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [position, setPosition] = useState<{ top: number; right: number } | null>(null)
   const [rowMenu, setRowMenu] = useState<RowMenuState | null>(null)
+  // M7.2: 分批渲染——先显示 10 条，滚动到底自动追加下一批（条数过多时可滑动查看）。
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const measure = (): void => {
     const button = triggerRef.current
@@ -84,9 +89,10 @@ export function HistoryPanel({
     onOpen()
   }
 
-  // 打开时立即测量锚点（覆盖直接以 open=true 挂载/重开场景）。
+  // 打开时立即测量锚点并复位分页（覆盖直接以 open=true 挂载/重开场景）。
   useEffect(() => {
     if (!open) return
+    setVisibleCount(PAGE_SIZE)
     measure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -160,11 +166,20 @@ export function HistoryPanel({
               <IconCloseOutline16 size={12} />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            onScroll={(event) => {
+              const el = event.currentTarget
+              // 滚动接近底部 → 追加下一批（每次 10 条）。
+              if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+                setVisibleCount((count) => Math.min(count + PAGE_SIZE, sessions.length))
+              }
+            }}
+          >
             {sessions.length === 0 ? (
               <div className="px-3 py-2 text-xs text-description">（暂无会话）</div>
             ) : (
-              sessions.map((item) => {
+              sessions.slice(0, visibleCount).map((item) => {
                 const selected = item.sessionId === selectedSessionId
                 const activity = activities[item.sessionId]
                 const title = item.projections?.values?.title || (item.blank ? '（新会话）' : item.sessionId.slice(0, 8))
@@ -232,6 +247,12 @@ export function HistoryPanel({
                 )
               })
             )}
+            {/* M7.2: 分批显示进度（滚动到底自动追加下一批）。 */}
+            {sessions.length > visibleCount ? (
+              <div className="px-3 py-1.5 text-center text-[11px] text-description">
+                已显示 {visibleCount} / {sessions.length} 条（继续下滑加载更多）
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

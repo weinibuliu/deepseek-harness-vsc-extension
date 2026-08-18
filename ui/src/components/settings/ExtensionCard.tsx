@@ -42,21 +42,20 @@ function UpdateCheckSection({ update, autoCheckUpdates, wire }: {
 
   return (
     <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-        <span className="min-w-0">
-          <span className="block text-sm">检查 DSH 更新</span>
-          <span className="block text-xs text-description">当前版本 {currentLabel} · 通过 npm registry 查询最新版本</span>
-        </span>
-        <button
-          type="button"
-          className="flex flex-none items-center gap-1 rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover disabled:opacity-50"
-          disabled={checking}
-          onClick={check}
-        >
-          {checking ? <IconLoadingOutline16 size={12} className="animate-spin" /> : null}
-          {checking ? '检查中…' : '检查更新'}
-        </button>
-      </div>
+      {/* M7.2: 上下结构——标题/说明在上、控件在下，避免窄面板左右文字重合。 */}
+      <span className="block min-w-0">
+        <span className="block text-sm">检查 DSH 更新</span>
+        <span className="block text-xs text-description">当前版本 {currentLabel} · 通过 npm registry 查询最新版本</span>
+      </span>
+      <button
+        type="button"
+        className="flex w-fit items-center gap-1 rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover disabled:opacity-50"
+        disabled={checking}
+        onClick={check}
+      >
+        {checking ? <IconLoadingOutline16 size={12} className="animate-spin" /> : null}
+        {checking ? '检查中…' : '检查更新'}
+      </button>
       {update.state === 'update' ? (
         <p className="text-xs text-warning" role="status">
           有新版本可用 v{update.latestVersion}（当前 {currentLabel}）——运行
@@ -101,21 +100,20 @@ function WaitingLinesSection({ lines, wire }: { lines: string[]; wire: SettingsW
 
   return (
     <div className="flex flex-col gap-1.5 rounded-xs border border-border-panel p-2">
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-        <span className="min-w-0">
-          <span className="block text-sm">等待轮播词库</span>
-          <span className="block text-xs text-description">
-            模型回复等待期间随机轮播的文案（打字机效果；空行不计，留空全部回退默认词库）
-          </span>
+      {/* M7.2: 上下结构——标题/说明在上、按钮与词库行在下。 */}
+      <span className="block min-w-0">
+        <span className="block text-sm">等待轮播词库</span>
+        <span className="block text-xs text-description">
+          模型回复等待期间随机轮播的文案（打字机效果；空行不计，留空全部回退默认词库）
         </span>
-        <button
-          type="button"
-          className="flex-none rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
-          onClick={() => setDraft((prev) => [...prev, ''])}
-        >
-          ＋ 新增
-        </button>
-      </div>
+      </span>
+      <button
+        type="button"
+        className="w-fit rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
+        onClick={() => setDraft((prev) => [...prev, ''])}
+      >
+        ＋ 新增
+      </button>
       {draft.map((line, index) => (
         <div key={index} className="flex items-center gap-1.5">
           <input
