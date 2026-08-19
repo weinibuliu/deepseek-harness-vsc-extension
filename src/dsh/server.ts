@@ -7,6 +7,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DshLauncher } from "./discovery.ts";
+import { t } from "../shared/i18n.ts";
 
 /** The ready line dsh-web-app prints once the server is listening (§3). */
 const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/u;
@@ -91,7 +92,11 @@ export function startDshWeb(
       terminateChild(child, false);
       reject(
         new Error(
-          `dsh web 启动超时(${(options.bootTimeoutMs ?? BOOT_TIMEOUT_MS) / 1000}s)，未收到就绪行。\nstdout:\n${stdoutBuf}\nstderr:\n${stderrBuf}`,
+          t("error.bootTimeout", {
+            seconds: (options.bootTimeoutMs ?? BOOT_TIMEOUT_MS) / 1000,
+            stdout: stdoutBuf,
+            stderr: stderrBuf,
+          }),
         ),
       );
     }, options.bootTimeoutMs ?? BOOT_TIMEOUT_MS);
@@ -123,7 +128,7 @@ export function startDshWeb(
       if (settled) return;
       settled = true;
       clearTimeout(bootTimer);
-      reject(new Error(`dsh web 进程启动失败: ${error.message}`));
+      reject(new Error(t("error.spawnFailed", { message: error.message })));
     });
 
     child.on("exit", (code, signal) => {
@@ -132,7 +137,12 @@ export function startDshWeb(
       clearTimeout(bootTimer);
       reject(
         new Error(
-          `dsh web 在就绪前退出 (code=${String(code)}, signal=${signal ?? "none"})\nstdout:\n${stdoutBuf}\nstderr:\n${stderrBuf}`,
+          t("error.exitedBeforeReady", {
+            code: String(code),
+            signal: signal ?? "none",
+            stdout: stdoutBuf,
+            stderr: stderrBuf,
+          }),
         ),
       );
     });

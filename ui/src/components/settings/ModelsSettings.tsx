@@ -15,6 +15,7 @@ import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { ProviderEditorCard } from './ProviderEditorCard.tsx'
 import { providerUsable } from './readiness.ts'
 import { deriveKeyRef } from './validate.ts'
+import { t } from '../../i18n.ts'
 import type { SettingsWire } from './wire.ts'
 
 interface EditorTarget {
@@ -104,9 +105,9 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
 
   return (
     <div className="flex min-h-0 flex-col gap-2 overflow-y-auto px-3 py-2">
-      <h2 className="text-sm">模型</h2>
-      {!panel.writable ? <p className="text-xs text-warning">设置只读</p> : null}
-      {saved !== undefined ? <p className="text-xs text-success" role="status">已保存 {saved}</p> : null}
+      <h2 className="text-sm">{t('nav.models')}</h2>
+      {!panel.writable ? <p className="text-xs text-warning">{t('settings.readOnly')}</p> : null}
+      {saved !== undefined ? <p className="text-xs text-success" role="status">{t('models.saved', { name: saved })}</p> : null}
       <ul className="m-0 list-none p-0">
         {configured.map((row) => {
           const target = targetOf(row)
@@ -138,11 +139,11 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
               <div className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="truncate text-sm">{row.displayName}</span>
-                  {row.declared === true ? <span className="text-xs text-description">自定义</span> : null}
+                  {row.declared === true ? <span className="text-xs text-description">{t('common.custom')}</span> : null}
                   {credentialConfigured
-                    ? <span className="inline-block size-2 rounded-full bg-success" title="已配置 key" />
+                    ? <span className="inline-block size-2 rounded-full bg-success" title={t('models.keyConfigured')} />
                     : credentialMissing
-                      ? <span className="inline-block size-2 rounded-full bg-error" title="缺少 key" />
+                      ? <span className="inline-block size-2 rounded-full bg-error" title={t('models.keyMissing')} />
                       : null}
                 </span>
                 <span className="flex flex-none items-center gap-2">
@@ -156,7 +157,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                       setEditing(open ? undefined : target)
                     }}
                   >
-                    编辑
+                    {t('action.edit')}
                   </button>
                   {row.removable ? (
                     <button
@@ -169,7 +170,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                         setDeleteTarget(target)
                       }}
                     >
-                      删除
+                      {t('action.delete')}
                     </button>
                   ) : null}
                 </span>
@@ -239,7 +240,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
               readOnly={!panel.writable}
               onClose={(changed) => {
                 setDeclaring(false)
-                if (changed) setSaved('自定义 Provider')
+                if (changed) setSaved(t('models.customProvider'))
               }}
             />
           </div>
@@ -258,7 +259,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                 setEditing(targetOf(first))
               }}
             >
-              ＋ 添加
+              {t('action.add')}
             </button>
             <button
               type="button"
@@ -271,7 +272,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                 setDeclaring(true)
               }}
             >
-              ＋ 自定义
+              {t('action.addCustom')}
             </button>
           </div>
         )}
@@ -279,11 +280,11 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
       {deleteTarget !== undefined ? (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
           <div className="flex w-[85%] flex-col gap-2 rounded-xs border border-border-panel bg-background p-3 shadow-lg">
-            <div className="text-sm">删除 {deleteTarget.displayName}？</div>
+            <div className="text-sm">{t('models.confirmDelete', { name: deleteTarget.displayName })}</div>
             <p className="text-xs text-description">
               {deleteTarget.credentialRef === undefined
-                ? '该 provider 的用户配置将被移除，回到默认层。'
-                : '该 provider 及其凭据将被移除。'}
+                ? t('models.deleteBodyDefault')
+                : t('models.deleteBodyCredential')}
             </p>
             {deleteFailure !== undefined ? <p className="text-xs text-error">{deleteFailure}</p> : null}
             <div className="flex items-center justify-end gap-2">
@@ -293,7 +294,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                 disabled={deleting}
                 onClick={() => { setDeleteTarget(undefined); setDeleteFailure(undefined) }}
               >
-                取消
+                {t('action.cancel')}
               </button>
               <button
                 type="button"
@@ -301,7 +302,7 @@ export function ModelsSettings({ panel, wire }: ModelsSettingsProps) {
                 disabled={deleting}
                 onClick={confirmDelete}
               >
-                {deleting ? '删除中…' : '删除'}
+                {deleting ? t('common.deleting') : t('action.delete')}
               </button>
             </div>
           </div>

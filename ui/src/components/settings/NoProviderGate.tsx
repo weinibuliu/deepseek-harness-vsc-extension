@@ -8,6 +8,7 @@
 
 import type { SettingsPanelView } from '../../../../src/shared/protocol.ts'
 import { DshLogo } from '../DshLogo.tsx'
+import { t } from '../../i18n.ts'
 import { ProviderEditorCard } from './ProviderEditorCard.tsx'
 import { noProviderReadiness } from './readiness.ts'
 import type { SettingsWire } from './wire.ts'
@@ -31,8 +32,8 @@ export function NoProviderGate({ panel, wire, onBack, onOpenSettings }: NoProvid
     <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
       <DshLogo size={48} />
       <div className="flex flex-col items-center gap-1.5">
-        <h2 className="text-sm">添加 API Key 开始使用</h2>
-        <p className="text-xs text-description">暂无可用模型提供商。填入 DeepSeek 官方 API Key 即可开始。</p>
+        <h2 className="text-sm">{t('onboarding.title')}</h2>
+        <p className="text-xs text-description">{t('onboarding.subtitle')}</p>
       </div>
       <div className="w-full max-w-xs text-left">
         <ProviderEditorCard
@@ -45,9 +46,9 @@ export function NoProviderGate({ panel, wire, onBack, onOpenSettings }: NoProvid
           credentialOnly
           credentialRequired
           autoFocusCredential
-          cancelLabel="稍后配置"
-          submitLabel="保存并继续"
-          submitBusyLabel="保存中…"
+          cancelLabel={t('action.later')}
+          submitLabel={t('action.saveContinue')}
+          submitBusyLabel={t('common.saving')}
           onClose={(changed) => { if (!changed) onBack() }}
         />
       </div>
@@ -56,7 +57,7 @@ export function NoProviderGate({ panel, wire, onBack, onOpenSettings }: NoProvid
         className="rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
         onClick={onOpenSettings}
       >
-        其它模型提供商？
+        {t('onboarding.otherProviders')}
       </button>
     </div>
   )

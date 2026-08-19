@@ -13,6 +13,7 @@ import {
   IconChevronDownOutline14,
 } from '../../icons/index.tsx'
 import { FULL_ACCESS_PRESET, permissionLabel } from '../permission.ts'
+import { t } from '../i18n.ts'
 
 interface PermissionSelectProps {
   /** permissions 投影快照（null = 能力缺席 → 席位隐藏）。 */
@@ -236,9 +237,9 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
       {confirming && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
           <div className="flex w-[85%] max-w-sm flex-col gap-2 rounded-xs border border-border-panel bg-background p-3 shadow-lg">
-            <div className="text-sm">确认启用「完全访问」？</div>
+            <div className="text-sm">{t('permission.confirmFullAccessTitle')}</div>
             <p className="text-xs text-description">
-              启用后，agent 将减少确认步骤，并可直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。
+              {t('permission.confirmFullAccessBody')}
             </p>
             <label className="flex items-start gap-2 text-xs">
               <input
@@ -246,7 +247,7 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
                 checked={acknowledged}
                 onChange={(event) => setAcknowledged(event.target.checked)}
               />
-              <span className="min-w-0">我已了解风险，并愿意继续</span>
+              <span className="min-w-0">{t('permission.acknowledge')}</span>
             </label>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -254,7 +255,7 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
                 className="rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
                 onClick={close}
               >
-                取消
+                {t('action.cancel')}
               </button>
               <button
                 type="button"
@@ -262,7 +263,7 @@ export function PermissionSelect({ value, onSelect, disabled }: PermissionSelect
                 disabled={!acknowledged}
                 onClick={confirmFullAccess}
               >
-                启用完全访问
+                {t('permission.enableFullAccess')}
               </button>
             </div>
           </div>

@@ -25,6 +25,7 @@ import {
   IconChevronUpOutline14,
   IconLoadingOutline16,
 } from '../../icons/index.tsx'
+import { t } from '../i18n.ts'
 
 export interface PendingDialogProps {
   /** 待应答交互（扩展侧已按最旧优先排序；空数组 = 无接管）。 */
@@ -153,21 +154,21 @@ function ApprovalCardView({
     <div tabIndex={0} onKeyDown={onKeyDown} className="outline-none">
       <CardShell
         tone="approval"
-        header="等待审批"
-        ariaLabel={item.reason ?? `工具 ${item.toolName} 请求审批`}
+        header={t('pending.approvalHeader')}
+        ariaLabel={item.reason ?? t('pending.approvalAria', { tool: item.toolName })}
         feedback={feedback}
         actions={
           <>
             <ActionButton variant="outline" disabled={busy} onClick={() => answer('rejected')}>
-              拒绝
+              {t('action.reject')}
             </ActionButton>
             <ActionButton variant="primary" disabled={busy} onClick={() => answer('allowed-once')}>
-              允许一次
+              {t('action.allowOnce')}
             </ActionButton>
           </>
         }
       >
-        <div className="break-words font-medium">{item.reason ?? `工具 ${item.toolName} 请求执行`}</div>
+        <div className="break-words font-medium">{item.reason ?? t('pending.toolRequestsExecution', { tool: item.toolName })}</div>
         <div className="mt-0.5 break-all font-mono text-xs text-description">{item.toolName}</div>
       </CardShell>
     </div>
@@ -206,21 +207,21 @@ function PlanReviewCardView({
     <div tabIndex={0} onKeyDown={onKeyDown} className="outline-none">
       <CardShell
         tone="plan"
-        header="计划审批"
+        header={t('pending.planHeader')}
         ariaLabel={item.question}
         feedback={feedback}
         actions={
           <>
             <ActionButton variant="ghost" disabled={busy} onClick={() => onCancel(item.key)}>
-              讨论
+              {t('action.discuss')}
             </ActionButton>
             {item.decline !== undefined ? (
               <ActionButton variant="outline" disabled={busy} onClick={() => decide(item.decline!)}>
-                拒绝
+                {t('action.reject')}
               </ActionButton>
             ) : null}
             <ActionButton variant="primary" disabled={busy} onClick={() => decide(item.approve)}>
-              批准
+              {t('action.approve')}
             </ActionButton>
           </>
         }
@@ -329,7 +330,7 @@ function QuestionEditor({
         <input
           type="text"
           value={draft.custom}
-          placeholder="输入其它答案…"
+          placeholder={t('pending.customPlaceholder')}
           onFocus={onFocus}
           onKeyDown={(e) => {
             // 文本行内方向键只移动光标，不触发卡片翻页；Enter/Esc 仍上浮（提交/取消）。
@@ -400,7 +401,7 @@ function QuestionCardView({
     if (missing >= 0) {
       setPage(missing)
       setActive(missing)
-      setValidation('还有问题未回答，请回答或跳过后再提交。')
+      setValidation(t('pending.unanswered'))
       return
     }
     setValidation(null)
@@ -470,16 +471,16 @@ function QuestionCardView({
     <div tabIndex={0} onKeyDown={onKeyDown} className="outline-none">
       <CardShell
         tone="question"
-        header={`问询${count > 1 ? `（${page + 1}/${count}）` : ''}`}
+        header={count > 1 ? t('pending.questionHeaderPaged', { page: page + 1, count }) : t('pending.questionHeader')}
         ariaLabel={q.question}
         feedback={validation ?? feedback}
         actions={
           <>
             <ActionButton variant="ghost" disabled={busy} onClick={() => onCancel(item.key)}>
-              取消
+              {t('action.cancel')}
             </ActionButton>
             <ActionButton variant="outline" disabled={busy} onClick={skip}>
-              跳过
+              {t('action.skip')}
             </ActionButton>
             {count > 1 ? (
               <>
@@ -500,7 +501,7 @@ function QuestionCardView({
               </>
             ) : null}
             <ActionButton variant="primary" disabled={busy} onClick={submit}>
-              {busy ? <IconLoadingOutline16 size={12} className="animate-spin" /> : '提交'}
+              {busy ? <IconLoadingOutline16 size={12} className="animate-spin" /> : t('action.submit')}
             </ActionButton>
           </>
         }
@@ -534,7 +535,7 @@ export function PendingDialog({ items, onAnswer, onCancel, errors }: PendingDial
     <div className="relative">
       {extra > 0 ? (
         <div className="pointer-events-none absolute right-3.5 top-1 z-10 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-description">
-          还有 {extra} 个待处理
+          {t('pending.morePending', { count: extra })}
         </div>
       ) : null}
       {first.kind === 'approval' ? (

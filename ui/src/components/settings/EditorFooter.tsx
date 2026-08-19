@@ -2,6 +2,7 @@
  * 编辑卡底部动作行：左取消、右提交（对齐官方 EditorFooter）。取消仅在提交
  * 进行中拒绝输入；卡片因只读/禁用仍可关闭。
  */
+import { t } from '../../i18n.ts'
 
 interface EditorFooterProps {
   busy: boolean
@@ -16,9 +17,9 @@ interface EditorFooterProps {
 export function EditorFooter({
   busy,
   submitDisabled,
-  submitLabel = '应用',
-  submitBusyLabel = '应用中…',
-  cancelLabel = '取消',
+  submitLabel = t('action.apply'),
+  submitBusyLabel = t('common.applying'),
+  cancelLabel = t('action.cancel'),
   onCancel,
   onSubmit,
 }: EditorFooterProps) {

@@ -15,6 +15,7 @@ import {
   IconChevronRightOutline14,
   IconWarningOutline16,
 } from '../../icons/index.tsx'
+import { t } from '../i18n.ts'
 
 interface ModelSelectProps {
   /** 目录快照（null = 尚未加载）。 */
@@ -69,7 +70,7 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
       : effectiveEffort === undefined
         ? 'Default'
         : (reasoning.efforts.find((e) => e.id === effectiveEffort)?.name ?? effectiveEffort)
-  const modelLabel = currentModel?.name ?? '选择模型'
+  const modelLabel = currentModel?.name ?? t('model.choose')
 
   const effortChoices: EffortChoice[] =
     reasoning === undefined
@@ -178,7 +179,7 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
   return (
     <div ref={rootRef} className="flex min-w-0 flex-wrap items-center gap-2" onKeyDown={onKeyDown}>
       {routableBlocked && (
-        <span className="w-full text-xs text-error">当前模型不可用，请先选择模型</span>
+        <span className="w-full text-xs text-error">{t('model.unavailable')}</span>
       )}
       <div className="relative min-w-0">
         <button
@@ -197,7 +198,7 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
             {pane === 'root' && (
               <div className="py-1">
                 <Cell
-                  label="模型"
+                  label={t('model.label')}
                   value={modelLabel}
                   highlighted={index === 0}
                   onMouseEnter={() => setIndex(0)}
@@ -208,7 +209,7 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
                 />
                 {reasoning !== undefined && (
                   <Cell
-                    label="推理等级"
+                    label={t('model.effort')}
                     value={effortLabel ?? ''}
                     highlighted={index === 1}
                     onMouseEnter={() => setIndex(1)}
@@ -224,7 +225,7 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
             {pane === 'model' && (
               <div className="max-h-[240px] overflow-y-auto py-1">
                 {models === null ? (
-                  <Status>加载中…</Status>
+                  <Status>{t('common.loading')}</Status>
                 ) : error !== null ? (
                   <ErrorStrip message={error} onRetry={onOpen} />
                 ) : null}
@@ -232,14 +233,14 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
                   <div key={f.id} className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-warning">
                     <IconWarningOutline16 size={14} />
                     <span className="min-w-0 flex-1 truncate" title={f.message}>
-                      {f.name} 加载失败：{f.message}
+                      {t('model.loadFailed', { name: f.name, message: f.message })}
                     </span>
                     <button type="button" className="input-icon-button shrink-0" onClick={onOpen}>
-                      重试
+                      {t('action.retry')}
                     </button>
                   </div>
                 ))}
-                {models !== null && error === null && modelRows.length === 0 && <Status>没有可用的模型。</Status>}
+                {models !== null && error === null && modelRows.length === 0 && <Status>{t('model.noModels')}</Status>}
                 {groups.map((group) => (
                   <div key={group.id}>
                     <div className="px-2.5 py-1 text-xs text-description">{group.name}</div>
@@ -266,12 +267,12 @@ export function ModelSelect({ models, onOpen, onSelect, disabled }: ModelSelectP
             {pane === 'effort' && (
               <div className="max-h-[240px] overflow-y-auto py-1">
                 {models === null ? (
-                  <Status>加载中…</Status>
+                  <Status>{t('common.loading')}</Status>
                 ) : error !== null ? (
                   <ErrorStrip message={error} onRetry={onOpen} />
                 ) : null}
                 {models !== null && error === null && effortChoices.length === 0 && (
-                  <Status>当前模型未提供推理等级。</Status>
+                  <Status>{t('model.noEffort')}</Status>
                 )}
                 {effortChoices.map((choice, i) => {
                   const selected = effectiveEffort === choice.effort
@@ -406,10 +407,10 @@ function ErrorStrip({ message, onRetry }: { message: string; onRetry: () => void
     <div className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-error">
       <IconWarningOutline16 size={14} />
       <span className="min-w-0 flex-1 truncate" title={message}>
-        模型操作失败：{message}
+        {t('model.operationFailed', { message })}
       </span>
       <button type="button" className="input-icon-button shrink-0" onClick={onRetry}>
-        重试
+        {t('action.retry')}
       </button>
     </div>
   )

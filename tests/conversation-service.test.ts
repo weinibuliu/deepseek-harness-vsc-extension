@@ -269,7 +269,7 @@ describe("ConversationService history pagination", () => {
     expect(snapshot.hasMore).toBe(true);
     expect(snapshot.items.at(-1)).toEqual({
       kind: "note",
-      text: "会话出错：boom",
+      text: "Session error: boom",
     });
   });
 

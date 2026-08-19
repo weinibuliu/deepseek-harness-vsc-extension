@@ -13,6 +13,7 @@ import {
   type BrokerErrorCode,
   type BrokerReply,
 } from "./runtime-broker-protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 export interface RuntimeBrokerPaths {
   socket: string;
@@ -135,7 +136,7 @@ export async function acquireRuntimeBroker(options: {
       }
       await delay(100);
     }
-    throw new Error(`等待全局 DSH Runtime Broker 超时(${String(timeoutMs)}ms)`);
+    throw new Error(t("error.brokerTimeout", { ms: String(timeoutMs) }));
   } finally {
     if (ownsLaunchLock)
       await unlink(options.paths.launchLock).catch(() => undefined);
@@ -185,7 +186,7 @@ async function connectAndAcquire(
   }
   if (reply.protocol !== BROKER_PROTOCOL_VERSION) {
     socket.destroy();
-    throw new Error("全局 DSH Runtime Broker 协议版本不匹配");
+    throw new Error(t("error.brokerProtocolMismatch"));
   }
   if (reply.type === "error") {
     socket.destroy();
@@ -209,7 +210,7 @@ function connectSocket(path: string, timeoutMs: number): Promise<Socket> {
     const socket = connect(path);
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new Error("连接全局 DSH Runtime Broker 超时"));
+      reject(new Error(t("error.brokerConnectTimeout")));
     }, timeoutMs);
     socket.once("connect", () => {
       clearTimeout(timer);
@@ -240,7 +241,7 @@ function readReply(socket: Socket, timeoutMs: number): Promise<BrokerReply> {
       try {
         resolve(JSON.parse(buffer.slice(0, newline)) as BrokerReply);
       } catch {
-        reject(new Error("全局 DSH Runtime Broker 返回了无效响应"));
+        reject(new Error(t("error.brokerInvalidResponse")));
       }
     };
     const onError = (error: Error): void => {
@@ -249,11 +250,11 @@ function readReply(socket: Socket, timeoutMs: number): Promise<BrokerReply> {
     };
     const onClose = (): void => {
       cleanup();
-      reject(new Error("全局 DSH Runtime Broker 在响应前关闭"));
+      reject(new Error(t("error.brokerClosedEarly")));
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error("等待全局 DSH Runtime Broker 响应超时"));
+      reject(new Error(t("error.brokerResponseTimeout")));
     }, timeoutMs);
     socket.on("data", onData);
     socket.once("error", onError);

@@ -26,6 +26,7 @@ import {
   type EnvelopeValidator,
   type ServerRequest,
 } from "../dsh/wire.ts";
+import { t } from "../shared/i18n.ts";
 
 export type DshStatus =
   "discovering" | "starting" | "ready" | "reconnecting" | "stopped" | "error";
@@ -163,7 +164,7 @@ export class DshService extends EventEmitter {
       const baseUrl = normalizeDshBaseUrl(external);
       const result = await probeDsh(baseUrl, 10_000);
       if (result.kind !== "dsh")
-        throw new Error(`指定地址不是可用的 DSH：${result.reason}`);
+        throw new Error(t("error.notDsh", { reason: result.reason }));
       return {
         baseUrl: result.baseUrl,
         ownership: "external-specified",
@@ -226,11 +227,14 @@ export class DshService extends EventEmitter {
     }
     if (await isTcpPortOccupied("127.0.0.1", this.options.managedPort)) {
       throw new Error(
-        `DSH 管理端口 ${String(this.options.managedPort)} 已被其他程序占用：${managed.reason}`,
+        t("error.portConflict", {
+          port: String(this.options.managedPort),
+          reason: managed.reason,
+        }),
       );
     }
 
-    this.setStatus("discovering", "正在查找 dsh 可执行文件");
+    this.setStatus("discovering", t("status.discoveringDetail"));
     this.launcher = await discoverDsh({ explicitPath: this.explicitPath });
     this.options.onLog?.(
       `dsh package: ${this.launcher.version ?? "unknown"} @ ${this.launcher.command} (${this.launcher.source})`,
@@ -251,7 +255,7 @@ export class DshService extends EventEmitter {
 
   private async openGeneration(): Promise<void> {
     const baseUrl = this.currentBaseUrl;
-    if (!baseUrl) throw new Error("DSH 连接目标尚未解析");
+    if (!baseUrl) throw new Error(t("error.connectionTargetUnresolved"));
     const generation = ++this.generation;
     const wire = new WireClient(baseUrl, this.validator ?? undefined);
     const wsBase = baseUrl
@@ -306,9 +310,9 @@ export class DshService extends EventEmitter {
         hostOpen,
       ]);
       const parsed = parseDshHostDescription(description);
-      if (!parsed) throw new Error("host.describe 响应结构不符合 DSH 契约");
+      if (!parsed) throw new Error(t("error.hostDescribeContract"));
       if (closedWhileOpening)
-        throw new Error("DSH WebSocket 在连接代际就绪前关闭");
+        throw new Error(t("error.wsClosedBeforeReady"));
       this.reportedVersion = parsed.version;
       ready = true;
     } catch (error) {
@@ -378,11 +382,11 @@ function waitForEventOpen(
     };
     const onClose = (): void => {
       cleanup();
-      reject(new Error("DSH WebSocket 在就绪前关闭"));
+      reject(new Error(t("error.wsClosedBeforeReady")));
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error("等待 DSH WebSocket 就绪超时"));
+      reject(new Error(t("error.wsReadyTimeout")));
     }, timeoutMs);
     stream.once("open", onOpen);
     stream.once("close", onClose);

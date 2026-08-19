@@ -24,6 +24,7 @@ import type {
   PendingItemView,
   PendingQuestionView,
 } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 /** 一个 question 的 wire 原始形态（AskUserQuestionItem 结构镜像；数据留在此层）。 */
 interface WireQuestion {
@@ -153,9 +154,7 @@ export class PendingInteractionService extends EventEmitter {
   async cancel(sessionId: string, key: string): Promise<RpcReceipt> {
     const entry = this.requireEntry(sessionId, key);
     if (entry.view.kind === "approval") {
-      throw new Error(
-        "审批请求没有取消出口（wire 仅 allowed-once/rejected 两结局）",
-      );
+      throw new Error(t("error.approvalNoCancel"));
     }
     const client = this.requireClient();
     return await client.respond(entry.rpcId, {
@@ -192,13 +191,13 @@ export class PendingInteractionService extends EventEmitter {
   private requireEntry(sessionId: string, key: string): PendingEntry {
     const entry = this.entries.get(key);
     if (!entry || entry.sessionId !== sessionId)
-      throw new Error("待应答交互不存在或已结算");
+      throw new Error(t("error.pendingNotFound"));
     return entry;
   }
 
   private requireClient(): WireClient {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 尚未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 }

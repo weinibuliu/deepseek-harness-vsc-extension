@@ -19,6 +19,7 @@ import type {
   TokenUsageStatsView,
   UsageStatsView,
 } from '../../../src/shared/protocol.ts'
+import { t } from '../i18n.ts'
 
 /** 圆环几何（对齐 dsh-web ContextMeter：14px viewBox、r5.5、2px 描边）。 */
 const RADIUS = 5.5
@@ -73,9 +74,9 @@ function ringTier(percent: number): string {
 
 /** 构成三分类的展示顺序（系统提示词 / 工具 schema / 对话消息；启发式、带 ~）。 */
 const BREAKDOWN_ROWS = [
-  { key: 'systemTokens', label: '系统提示词' },
-  { key: 'toolsTokens', label: '工具 schema' },
-  { key: 'messageTokens', label: '对话消息' },
+  { key: 'systemTokens', labelKey: 'usage.systemPrompt' },
+  { key: 'toolsTokens', labelKey: 'usage.toolSchema' },
+  { key: 'messageTokens', labelKey: 'usage.messages' },
 ] as const
 
 interface UsageChipProps {
@@ -104,16 +105,16 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 function timeRows(sessionStats: SessionStatsView | undefined): React.ReactNode {
   if (sessionStats === undefined || sessionStats.steps <= 0) return null
   const rows: { label: string; value: string }[] = [
-    { label: '轮数 · 步数', value: `${sessionStats.turns} 轮 · ${sessionStats.steps} 步` },
+    { label: t('usage.turnsSteps'), value: t('usage.turnsStepsValue', { turns: sessionStats.turns, steps: sessionStats.steps }) },
   ]
-  if (sessionStats.llmMs > 0) rows.push({ label: '模型耗时', value: formatDuration(sessionStats.llmMs) })
-  if (sessionStats.toolMs > 0) rows.push({ label: '工具耗时', value: formatDuration(sessionStats.toolMs) })
+  if (sessionStats.llmMs > 0) rows.push({ label: t('usage.llmTime'), value: formatDuration(sessionStats.llmMs) })
+  if (sessionStats.toolMs > 0) rows.push({ label: t('usage.toolTime'), value: formatDuration(sessionStats.toolMs) })
   if (sessionStats.ttftSteps > 0) {
-    rows.push({ label: '首 token 平均', value: formatDuration(sessionStats.ttftMs / sessionStats.ttftSteps) })
+    rows.push({ label: t('usage.ttft'), value: formatDuration(sessionStats.ttftMs / sessionStats.ttftSteps) })
   }
   if (sessionStats.decodeMs > 0) {
     const throughput = Math.round(sessionStats.decodeTokens / (sessionStats.decodeMs / 1_000))
-    rows.push({ label: '生成速度', value: `${throughput} token/s` })
+    rows.push({ label: t('usage.throughput'), value: `${throughput} token/s` })
   }
   return rows.map((row) => <Row key={row.label} label={row.label} value={row.value} />)
 }
@@ -156,8 +157,8 @@ export function UsageChip({ stats }: UsageChipProps) {
         <button
           type="button"
           className="input-icon-button flex size-6 items-center justify-center rounded-full"
-          title={`上下文占用 ${percent}%`}
-          aria-label={`上下文占用 ${percent}%`}
+          title={t('usage.contextOccupancy', { percent })}
+          aria-label={t('usage.contextOccupancy', { percent })}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
@@ -195,14 +196,14 @@ export function UsageChip({ stats }: UsageChipProps) {
         >
           <div
             role="dialog"
-            aria-label="会话统计"
+            aria-label={t('usage.sessionStats')}
             className="flex max-h-[80vh] w-[85%] max-w-sm flex-col gap-3 overflow-y-auto rounded-xs border border-border-panel bg-background p-3 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="text-sm">会话统计</div>
+            <div className="text-sm">{t('usage.sessionStats')}</div>
 
             {/* occupancy 已在上文判空返回，此处必然非 null：占用行恒显，构成行仅在 breakdown 在场时显。 */}
-            <Group title="上下文占用">
+            <Group title={t('usage.contextGroup')}>
               <Row
                 label={`${occupancy.percent}%`}
                 value={`~${formatTokens(occupancy.usedTokens)} / ${formatTokens(occupancy.contextWindow)}`}
@@ -212,7 +213,7 @@ export function UsageChip({ stats }: UsageChipProps) {
                   {BREAKDOWN_ROWS.map((row) => (
                     <Row
                       key={row.key}
-                      label={row.label}
+                      label={t(row.labelKey)}
                       value={`~${formatTokens(breakdown[row.key])}`}
                     />
                   ))}
@@ -221,14 +222,14 @@ export function UsageChip({ stats }: UsageChipProps) {
             </Group>
 
             {showTokens && usage !== undefined && (
-              <Group title="Token 消耗">
-                <Row label="输入" value={formatTokens(input)} />
-                <Row label="输出" value={formatTokens(output)} />
-                {cacheHit !== null && <Row label="缓存命中" value={`${cacheHit}%`} />}
+              <Group title={t('usage.tokenGroup')}>
+                <Row label={t('usage.input')} value={formatTokens(input)} />
+                <Row label={t('usage.output')} value={formatTokens(output)} />
+                {cacheHit !== null && <Row label={t('usage.cacheHit')} value={`${cacheHit}%`} />}
               </Group>
             )}
 
-            {time !== null && <Group title="时间">{time}</Group>}
+            {time !== null && <Group title={t('usage.time')}>{time}</Group>}
           </div>
         </div>
       )}

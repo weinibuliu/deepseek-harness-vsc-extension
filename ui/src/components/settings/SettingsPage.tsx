@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import type { SettingsPanelView } from '../../../../src/shared/protocol.ts'
 import { statusCopy } from '../../statusCopy.ts'
+import { t } from '../../i18n.ts'
 import { AboutPage } from './AboutPage.tsx'
 import { GeneralSettings } from './GeneralSettings.tsx'
 import { ModelsSettings } from './ModelsSettings.tsx'
@@ -91,21 +92,21 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
           <button
             type="button"
             className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-            title="返回"
-            aria-label="返回"
+            title={t('action.back')}
+            aria-label={t('action.back')}
             onClick={onBack}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
               <path d="M10.5 3.5L6 8L10.5 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <span className="text-sm">设置</span>
+          <span className="text-sm">{t('nav.settings')}</span>
         </div>
         <button
           type="button"
           className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-          title="刷新"
-          aria-label="刷新"
+          title={t('action.refresh')}
+          aria-label={t('action.refresh')}
           onClick={() => { wire.refresh() }}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -117,16 +118,16 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
       <div className="flex min-h-0 flex-1">
         {/* 左侧导航：宽度只够容纳 label（w-fit），窗口过窄（≤240px）时折叠为纯图标 */}
         <nav className="flex w-fit max-[240px]:w-8 flex-none flex-col gap-0.5 border-r border-border-panel p-1.5 max-[240px]:p-1">
-          {navItem('models', <ModelIcon />, '模型')}
-          {navItem('general', <GeneralIcon />, '通用')}
-          {navItem('about', <InfoIcon />, '关于')}
+          {navItem('models', <ModelIcon />, t('nav.models'))}
+          {navItem('general', <GeneralIcon />, t('nav.general'))}
+          {navItem('about', <InfoIcon />, t('nav.about'))}
         </nav>
 
         {/* 内容区 */}
         <div className="min-w-0 flex-1 overflow-hidden">
           {section === 'models' ? (
             panel === null ? (
-              <p className="px-3 py-2 text-xs text-description">加载中…</p>
+              <p className="px-3 py-2 text-xs text-description">{t('common.loading')}</p>
             ) : showModels ? (
               <ModelsSettings panel={panel} wire={wire} />
             ) : (
@@ -140,7 +141,7 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
                       className="mt-1 rounded-xs border border-border-panel px-2.5 py-1 text-xs hover:bg-list-hover"
                       onClick={() => { wire.refresh() }}
                     >
-                      重试
+                      {t('action.retry')}
                     </button>
                   </>
                 ) : null}
@@ -148,7 +149,7 @@ export function SettingsPage({ panel, wire, onBack, onOpenInBrowser }: SettingsP
             )
           ) : section === 'general' ? (
             panel === null ? (
-              <p className="px-3 py-2 text-xs text-description">加载中…</p>
+              <p className="px-3 py-2 text-xs text-description">{t('common.loading')}</p>
             ) : (
               <GeneralSettings panel={panel} wire={wire} />
             )

@@ -8,6 +8,7 @@
 import { connect } from "node:net";
 import { WebSocket } from "ws";
 import { WireClient } from "./wire.ts";
+import { t } from "../shared/i18n.ts";
 
 export interface DshHostDescription {
   version: string;
@@ -27,16 +28,17 @@ export function normalizeDshBaseUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`DSH 地址无效: ${raw}`);
+    throw new Error(t("error.invalidDshUrl", { url: raw }));
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`DSH 地址只支持 http/https: ${raw}`);
+    throw new Error(t("error.dshUrlScheme", { url: raw }));
   }
   if (url.username || url.password)
-    throw new Error("DSH 地址不能包含用户名或密码");
-  if (url.search || url.hash) throw new Error("DSH 地址不能包含查询参数或片段");
+    throw new Error(t("error.dshUrlCredentials"));
+  if (url.search || url.hash)
+    throw new Error(t("error.dshUrlQuery"));
   if (url.pathname !== "/" && url.pathname !== "") {
-    throw new Error("DSH 地址必须指向服务根路径");
+    throw new Error(t("error.dshUrlRoot"));
   }
   url.pathname = "";
   return url.toString().replace(/\/$/u, "");
@@ -49,7 +51,7 @@ export function loopbackDshUrl(port: number): string {
 
 export function assertPort(port: number): void {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`DSH 端口必须是 1 到 65535 的整数，收到: ${String(port)}`);
+    throw new Error(t("error.invalidPort", { port: String(port) }));
   }
 }
 
@@ -88,7 +90,7 @@ export async function probeDsh(
       return {
         kind: "not-dsh",
         baseUrl,
-        reason: "host.describe 响应结构不符合 DSH 契约",
+        reason: t("error.hostDescribeContract"),
       };
     }
     return { kind: "dsh", baseUrl, description };
@@ -143,11 +145,11 @@ function waitForOpen(socket: WebSocket, signal: AbortSignal): Promise<void> {
     };
     const onError = (): void => {
       cleanup();
-      reject(new Error("DSH WebSocket 握手失败"));
+      reject(new Error(t("error.wsHandshake")));
     };
     const onAbort = (): void => {
       cleanup();
-      reject(new Error("DSH 探测超时"));
+      reject(new Error(t("error.probeTimeout")));
     };
     signal.addEventListener("abort", onAbort, { once: true });
     socket.addEventListener("open", onOpen, { once: true });

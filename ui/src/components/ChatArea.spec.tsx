@@ -41,14 +41,14 @@ describe('ChatArea load-older row', () => {
   it('hides the row when hasMore is false', () => {
     const { queryByText } = renderChatArea({ hasMore: false })
 
-    expect(queryByText('加载更早')).toBeNull()
+    expect(queryByText('Load older')).toBeNull()
   })
 
   it('renders the button when hasMore is true and invokes onLoadOlder', () => {
     const onLoadOlder = vi.fn()
     const { getByText } = renderChatArea({ hasMore: true, onLoadOlder })
 
-    fireEvent.click(getByText('加载更早'))
+    fireEvent.click(getByText('Load older'))
 
     expect(onLoadOlder).toHaveBeenCalledTimes(1)
   })
@@ -56,7 +56,7 @@ describe('ChatArea load-older row', () => {
   it('disables the button and shows the loading label while paging', () => {
     const { getByText } = renderChatArea({ hasMore: true, loadingOlder: true })
 
-    const button = getByText('加载中…').closest('button')
+    const button = getByText('Loading…').closest('button')
     expect(button).not.toBeNull()
     expect((button as HTMLButtonElement).disabled).toBe(true)
   })
@@ -76,8 +76,8 @@ describe('ChatArea load-older row', () => {
       hasMore: true,
     })
 
-    expect(getByText('加载更早')).not.toBeNull()
-    expect(getByText('选择一个会话，或点击 ＋ 新建。')).not.toBeNull()
+    expect(getByText('Load older')).not.toBeNull()
+    expect(getByText('Select a session, or click + to start a new one.')).not.toBeNull()
     const rows = container.querySelectorAll('button')
     expect(rows.length).toBe(1)
   })
@@ -88,7 +88,7 @@ describe('ChatArea load-older row', () => {
     const onLoadOlder = vi.fn()
     const first = renderChatArea({ hasMore: true, onLoadOlder })
 
-    fireEvent.click(first.getByText('加载更早'))
+    fireEvent.click(first.getByText('Load older'))
     first.rerender(
       <ChatArea
         items={items('older-1', 'older-2', 'a', 'b')}

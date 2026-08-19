@@ -5,6 +5,7 @@
  */
 import type { SettingsPanelView } from '../../../../src/shared/protocol.ts'
 import { IconRefreshOutline14 } from '../../../icons/index.tsx'
+import { t } from '../../i18n.ts'
 import type { SettingsWire } from './wire.ts'
 import { AboutPage } from './AboutPage.tsx'
 
@@ -18,12 +19,12 @@ export function AboutGate({ panel, wire, onOpenInBrowser }: AboutGateProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex flex-none items-center justify-between gap-2 border-b border-border-panel px-3 py-1.5">
-        <span className="text-sm">设置</span>
+        <span className="text-sm">{t('nav.settings')}</span>
         <button
           type="button"
           className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-          title="刷新"
-          aria-label="刷新"
+          title={t('action.refresh')}
+          aria-label={t('action.refresh')}
           onClick={() => { wire.refresh() }}
         >
           <IconRefreshOutline14 />

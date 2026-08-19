@@ -13,6 +13,7 @@
 
 import { DshRpcError, type WireClient } from "../dsh/wire.ts";
 import type { SkillDescriptorView } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 /** skill.list 的原始 wire 行（whenToUse 丢弃不进菜单行）。 */
 interface RawSkillEntry {
@@ -37,7 +38,7 @@ export class SkillService {
 
   private requireClient(): WireClient {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 尚未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 

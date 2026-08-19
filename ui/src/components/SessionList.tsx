@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { SessionActivityView, SessionSummary, WorkspaceView } from '../../../src/shared/protocol.ts'
 import { IconChevronDownOutline14, IconChevronUpOutline14, IconEllipsisOutline16, IconLoadingOutline16, IconNewChatOutline16, IconRefreshOutline14, IconSettingsOutline14 } from '../../icons/index.tsx'
+import { t } from '../i18n.ts'
 
 interface SessionListProps {
   workspace: WorkspaceView | null
@@ -93,12 +94,12 @@ export function SessionList({
   return (
     <section className="flex max-h-[40%] flex-none flex-col overflow-hidden border-b border-border-panel">
       <div className="flex flex-none items-center justify-between gap-2 px-3 py-1.5">
-        <span className="truncate text-xs text-description">{workspace?.title ?? '（未打开文件夹）'}</span>
+        <span className="truncate text-xs text-description">{workspace?.title ?? t('workspace.noFolder')}</span>
         <div className="flex flex-none items-center gap-0.5">
           <button
             type="button"
             className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-            title="刷新会话"
+            title={t('action.refreshSessions')}
             onClick={onRefresh}
           >
             <IconRefreshOutline14 size={13} />
@@ -106,8 +107,8 @@ export function SessionList({
           <button
             type="button"
             className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-            title="设置"
-            aria-label="设置"
+            title={t('nav.settings')}
+            aria-label={t('nav.settings')}
             onClick={onOpenSettings}
           >
             <IconSettingsOutline14 size={13} />
@@ -115,7 +116,7 @@ export function SessionList({
           <button
             type="button"
             className="input-icon-button flex size-5 items-center justify-center rounded-xs text-icon-foreground"
-            title="新会话"
+            title={t('action.newSession')}
             onClick={onNewSession}
           >
             <IconNewChatOutline16 size={14} />
@@ -125,12 +126,12 @@ export function SessionList({
       <ul className="scrollable m-0 min-h-0 list-none overflow-y-auto p-0">
         {sessions.length === 0 ? (
           <li className="px-3 py-1.5 text-xs text-description">
-            {workspace === null ? '打开文件夹以开始' : '（暂无会话）'}
+            {workspace === null ? t('workspace.openFolderToStart') : t('workspace.noSessions')}
           </li>
         ) : (
           visible.map((item) => {
             const active = item.sessionId === selectedSessionId
-            const title = item.projections?.values?.title || (item.blank ? '（新会话）' : item.sessionId.slice(0, 8))
+            const title = item.projections?.values?.title || (item.blank ? t('session.newSession') : item.sessionId.slice(0, 8))
             const realTitle = item.projections?.values?.title ?? null
             const activity = activities[item.sessionId]
             const pending = activity?.pending === true
@@ -140,13 +141,13 @@ export function SessionList({
             const unreadEnd = activity?.ended !== undefined
               && activity.ended.seq > (readEndSeq[item.sessionId] ?? -1)
             const statusTitle = pending
-              ? '等待输入'
+              ? t('session.waitingInput')
               : failed
-                ? '运行失败'
+                ? t('session.failed')
                 : running
-                  ? '运行中'
+                  ? t('session.running')
                   : unreadEnd
-                    ? activity?.ended?.kind === 'aborted' ? '已中断 · 未读' : '已完成 · 未读'
+                    ? activity?.ended?.kind === 'aborted' ? t('session.abortedUnread') : t('session.completedUnread')
                     : null
             return (
               <li
@@ -160,7 +161,7 @@ export function SessionList({
                 }}
               >
                 <span className="min-w-0 flex-1 truncate">
-                  {title}{activity?.archivedActive ? '（已归档 · 活动中）' : ''}
+                  {title}{activity?.archivedActive ? t('session.archivedActive') : ''}
                 </span>
                 {pending ? (
                   <span className="shrink-0 text-xs text-warning" title={statusTitle ?? undefined}>?</span>
@@ -175,8 +176,8 @@ export function SessionList({
                   type="button"
                   data-menu-toggle
                   className="input-icon-button flex size-5 flex-none items-center justify-center rounded-xs text-icon-foreground opacity-60 hover:opacity-100 focus:opacity-100 data-[open=true]:opacity-100"
-                  title="更多操作"
-                  aria-label="更多操作"
+                  title={t('session.moreActions')}
+                  aria-label={t('session.moreActions')}
                   aria-expanded={menu?.sessionId === item.sessionId}
                   data-open={menu?.sessionId === item.sessionId}
                   onClick={(event) => toggleMenu(event, item.sessionId, realTitle)}
@@ -200,7 +201,7 @@ export function SessionList({
           ) : (
             <IconChevronDownOutline14 size={12} className="shrink-0" />
           )}
-          <span>{expanded ? '收起' : `显示更多（还有 ${hiddenCount} 条）`}</span>
+          <span>{expanded ? t('session.collapse') : t('session.showMore', { count: hiddenCount })}</span>
         </button>
       ) : null}
       {menu ? (
@@ -219,7 +220,7 @@ export function SessionList({
             title={(() => {
               const activity = activities[menu.sessionId]
               return activity?.running === true || activity?.pending === true || activity?.archivedActive === true
-                ? '活动会话不能归档'
+                ? t('error.activeSessionCannotArchive')
                 : undefined
             })()}
             onClick={() => {
@@ -227,7 +228,7 @@ export function SessionList({
               onRenameSession(menu.sessionId, menu.currentTitle)
             }}
           >
-            重命名
+            {t('action.rename')}
           </button>
           <button
             type="button"
@@ -237,7 +238,7 @@ export function SessionList({
               onArchiveSession(menu.sessionId)
             }}
           >
-            归档
+            {t('action.archive')}
           </button>
         </div>
       ) : null}

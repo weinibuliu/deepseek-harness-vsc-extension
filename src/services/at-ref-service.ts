@@ -21,6 +21,7 @@ import {
 } from "./gitignore.ts";
 import { canonicalPath } from "./path-util.ts";
 import type { Severity } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 /** 扩展侧依赖注入面（生产由 extension.ts 以 vscode API 实现）。 */
 export interface AtRefDeps {
@@ -123,7 +124,7 @@ export class AtRefService {
   /** 枚举 @ 候选：当前文件置顶 + 工作区文件（.gitignore 过滤、去重、排序）。 */
   async listCandidates(): Promise<AtRefCandidate[]> {
     const workspaceRoot = this.deps.workspaceRoot();
-    if (!workspaceRoot) throw new Error("没有打开的工作区，无法枚举文件");
+    if (!workspaceRoot) throw new Error(t("error.noWorkspaceEnumerate"));
 
     const files = await this.deps.findFiles(workspaceRoot);
     const matcher = await this.buildMatcher(workspaceRoot, files);
@@ -174,7 +175,7 @@ export class AtRefService {
     sessionId: string | null,
   ): Promise<AtRefResult> {
     const workspaceRoot = this.deps.workspaceRoot();
-    if (!workspaceRoot) throw new Error("没有打开的工作区，无法引用文件");
+    if (!workspaceRoot) throw new Error(t("error.noWorkspaceReference"));
     const sessionCwd = await this.deps.sessionCwd(sessionId);
     const baseline = sessionCwd ?? workspaceRoot;
 

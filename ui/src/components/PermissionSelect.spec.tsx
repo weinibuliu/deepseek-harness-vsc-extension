@@ -45,7 +45,7 @@ describe('PermissionSelect menu placement', () => {
     const root = view.container.firstElementChild as HTMLDivElement
     vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect({}))
 
-    fireEvent.click(view.getByRole('button', { name: '工作区写入' }))
+    fireEvent.click(view.getByRole('button', { name: 'Workspace Write' }))
 
     const menu = document.querySelector<HTMLElement>('.w-72')
     expect(menu).not.toBeNull()
@@ -62,9 +62,9 @@ describe('PermissionSelect menu placement', () => {
     const view = render(<PermissionSelect value={VALUE} onSelect={onSelect} disabled={false} />)
     const root = view.container.firstElementChild as HTMLDivElement
     vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect({}))
-    fireEvent.click(view.getByRole('button', { name: '工作区写入' }))
+    fireEvent.click(view.getByRole('button', { name: 'Workspace Write' }))
 
-    const option = view.getByRole('menuitem', { name: '只读' })
+    const option = view.getByRole('menuitem', { name: 'Read Only' })
     fireEvent.mouseDown(option)
     fireEvent.click(option)
 

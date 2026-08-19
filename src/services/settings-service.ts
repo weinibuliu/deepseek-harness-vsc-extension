@@ -31,6 +31,7 @@ import type {
   SettingsRemoveTarget,
   SettingsProbe,
 } from "../shared/protocol.ts";
+import { t } from "../shared/i18n.ts";
 
 // ---- wire mirror types (契约跟随：结构镜像，插件不 require dsh 包) ----
 
@@ -288,7 +289,7 @@ export class SettingsService {
 
   private requireClient(): WireClient {
     const client = this.wire();
-    if (!client) throw new Error("dsh web 服务未就绪");
+    if (!client) throw new Error(t("error.dshNotReady"));
     return client;
   }
 
@@ -312,7 +313,7 @@ export class SettingsService {
       providers = providersResult.providers;
       describe = describeResult;
     } catch (error) {
-      throw new Error(`设置读取失败: ${messageOf(error)}`);
+      throw new Error(t("error.settingsLoadFailed", { message: messageOf(error) }));
     }
 
     // host.describe 为 dsh 包页的 enrich：失败不拖垮整页（该页仍显示可执行文件/settings.yaml）。
@@ -480,7 +481,7 @@ export class SettingsService {
         if (rpcErrorCode(error) === "settings-conflict") {
           return {
             ok: false,
-            text: "配置已被其它编辑修改，已刷新，请重试",
+            text: t("error.settingsConflict"),
             conflict: true,
           };
         }
@@ -495,7 +496,10 @@ export class SettingsService {
         });
       } catch (error) {
         // profile 已落盘；key 写入失败如实报告（重试仅剩 credentials.set）。
-        return { ok: false, text: `凭据保存失败: ${messageOf(error)}` };
+        return {
+          ok: false,
+          text: t("error.credentialSaveFailed", { message: messageOf(error) }),
+        };
       }
     }
     return { ok: true };
@@ -510,7 +514,10 @@ export class SettingsService {
       try {
         await client.call("credentials.unset", { ref: target.credentialRef });
       } catch (error) {
-        return { ok: false, text: `凭据删除失败: ${messageOf(error)}` };
+        return {
+          ok: false,
+          text: t("error.credentialRemoveFailed", { message: messageOf(error) }),
+        };
       }
     }
     try {
@@ -551,7 +558,7 @@ export class SettingsService {
       if (rpcErrorCode(error) === "settings-conflict") {
         return {
           ok: false,
-          text: "配置已被其它编辑修改，已刷新，请重试",
+          text: t("error.settingsConflict"),
           conflict: true,
         };
       }
@@ -564,7 +571,10 @@ export class SettingsService {
           value: create.keyValue,
         });
       } catch (error) {
-        return { ok: false, text: `凭据保存失败: ${messageOf(error)}` };
+        return {
+          ok: false,
+          text: t("error.credentialSaveFailed", { message: messageOf(error) }),
+        };
       }
     }
     return { ok: true };
@@ -596,7 +606,7 @@ export class SettingsService {
       if (rpcErrorCode(error) === "settings-conflict") {
         return {
           ok: false,
-          text: "配置已被其它编辑修改，已刷新，请重试",
+          text: t("error.settingsConflict"),
           conflict: true,
         };
       }
@@ -621,7 +631,7 @@ export class SettingsService {
       if (rpcErrorCode(error) === "settings-conflict") {
         return {
           ok: false,
-          text: "配置已被其它编辑修改，已刷新，请重试",
+          text: t("error.settingsConflict"),
           conflict: true,
         };
       }
